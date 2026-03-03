@@ -83,7 +83,7 @@
 
 ### 环境要求
 - **Node.js** 18+
-- **npm** 9+
+- **npm** 9+ 或 **pnpm** 8+
 
 ### 安装
 
@@ -96,6 +96,9 @@ cd author
 
 # 安装依赖
 npm install
+# 或使用 pnpm（无幽灵依赖问题）
+# pnpm install
+# pnpm approve-builds    # pnpm 需要手动激活原生构建包
 
 # 配置环境变量（可选）
 cp .env.example .env.local
@@ -136,7 +139,7 @@ npm start
 
 ```bash
 git pull origin main
-npm install
+npm install   # 或: pnpm install && pnpm approve-builds
 npm run dev
 ```
 

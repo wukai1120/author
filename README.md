@@ -82,7 +82,7 @@ Just install and start writing. All features work out of the box.
 
 ### Requirements
 - **Node.js** 18+
-- **npm** 9+
+- **npm** 9+ or **pnpm** 8+
 
 ### Installation
 
@@ -95,6 +95,9 @@ cd author
 
 # Install dependencies
 npm install
+# Or use pnpm (no phantom dependency issues)
+# pnpm install
+# pnpm approve-builds    # Required by pnpm to activate native packages
 
 # Configure environment variables (optional)
 cp .env.example .env.local
@@ -133,7 +136,7 @@ Download the latest installer from the [Releases](https://github.com/YuanShiJiLo
 
 ```bash
 git pull origin main
-npm install
+npm install   # or: pnpm install && pnpm approve-builds
 npm run dev
 ```
 

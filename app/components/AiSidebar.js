@@ -13,10 +13,11 @@ import { useAppStore } from '../store/useAppStore';
 import ChatMarkdown from './ChatMarkdown';
 import { useI18n } from '../lib/useI18n';
 
-// 解析消息中的 [SETTINGS_ACTION] 块
+// 解析消息中的 [SETTINGS_ACTION] 块（支持可选的代码围栏包裹）
 function parseSettingsActions(content) {
     if (!content) return { parts: [content || ''], actions: [] };
-    const regex = /\[SETTINGS_ACTION\]\s*([\s\S]*?)\s*\[\/SETTINGS_ACTION\]/g;
+    // 匹配带或不带 ``` 包裹的 [SETTINGS_ACTION] 块
+    const regex = /(?:```[^\n]*\n)?\[SETTINGS_ACTION\]\s*([\s\S]*?)\s*\[\/SETTINGS_ACTION\](?:\n```)?/g;
     const parts = [];
     const actions = [];
     let lastIndex = 0;
@@ -1006,7 +1007,7 @@ export default function AiSidebar({ onInsertText }) {
                                                     e.stopPropagation();
                                                     // 提取正文：去掉系统块、markdown标记、编辑点评
                                                     let text = (msg.content || '')
-                                                        .replace(/\[SETTINGS_ACTION\][\s\S]*?\[\\?\/SETTINGS_ACTION\]/g, '')
+                                                        .replace(/(?:```[^\n]*\n)?\[SETTINGS_ACTION\][\s\S]*?\[\\?\/SETTINGS_ACTION\](?:\n```)?/g, '')
                                                         .replace(/^#{1,6}\s+/gm, '')            // 去掉标题 #
                                                         .replace(/\*\*(.+?)\*\*/g, '$1')         // **粗体** → 粗体
                                                         .replace(/\*(.+?)\*/g, '$1')             // *斜体* → 斜体
@@ -1025,7 +1026,8 @@ export default function AiSidebar({ onInsertText }) {
                                                 }}
                                             >{t('aiSidebar.copy')}</button>
                                         </div>
-                                    )}
+                                    )
+                                    }
                                 </div>
                             );
                         })}
@@ -1058,368 +1060,375 @@ export default function AiSidebar({ onInsertText }) {
                         </button>
                     </div>
                 </div>
-            )}
+            )
+            }
 
             {/* ==================== 📋 存档 Tab ==================== */}
-            {activeTab === 'archive' && (
-                <div className="ai-sidebar-body">
-                    <div className="archive-search-bar">
-                        <input
-                            className="archive-search-input"
-                            placeholder={t('aiSidebar.searchArchive')}
-                            value={archiveSearch}
-                            onChange={e => setArchiveSearch(e.target.value)}
-                        />
-                    </div>
-                    <div className="archive-list">
-                        {filteredArchive.length === 0 && (
-                            <div className="chat-empty">
-                                <div>{t('aiSidebar.emptyArchiveIcon')}</div>
-                                <div>{t('aiSidebar.emptyArchiveTitle')}</div>
-                                <div className="chat-empty-hint">{t('aiSidebar.emptyArchiveHint')}</div>
-                            </div>
-                        )}
-                        {[...filteredArchive].reverse().map(item => (
-                            <div
-                                key={item.id}
-                                className={`archive-item ${item.status}`}
-                                onClick={() => setExpandedArchive(expandedArchive === item.id ? null : item.id)}
-                            >
-                                <div className="archive-item-header">
-                                    <span className={`archive-status ${item.status}`}>
-                                        {t(`aiSidebar.statuses.${item.status}`) || item.status}
-                                    </span>
-                                    <span className="archive-mode">{t(`aiSidebar.modes.${item.mode}`) || item.mode}</span>
-                                    <span className="archive-time">
-                                        {new Date(item.timestamp).toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' })}
-                                    </span>
-                                </div>
-                                <div className="archive-preview">
-                                    {item.text?.slice(0, 60)}…
-                                </div>
-                                {expandedArchive === item.id && (
-                                    <div className="archive-expanded">
-                                        <pre className="archive-full-text">{item.text}</pre>
-                                        <div className="archive-actions">
-                                            <button className="btn-mini" onClick={(e) => { e.stopPropagation(); onInsertText?.(item.text); }}>
-                                                {t('aiSidebar.insertEditor')}
-                                            </button>
-                                            <button className="btn-mini" onClick={(e) => { e.stopPropagation(); navigator.clipboard.writeText(item.text); }}>
-                                                {t('aiSidebar.copy')}
-                                            </button>
-                                        </div>
-                                    </div>
-                                )}
-                            </div>
-                        ))}
-                    </div>
-                </div>
-            )}
-
-            {/* ==================== 📚 参考 Tab ==================== */}
-            {activeTab === 'reference' && (
-                <div className="ai-sidebar-body">
-                    {/* Token 预算进度条 */}
-                    <div className="context-budget-bar">
-                        <div className="context-budget-label">
-                            <span>{t('aiSidebar.tokenUsage')}</span>
-                            <span className={isOverBudget ? 'context-over-budget' : ''}>
-                                {totalSelectedTokens.toLocaleString()} / {(INPUT_TOKEN_BUDGET / 1000).toFixed(0)}k
-                            </span>
-                        </div>
-                        <div className="context-budget-track">
-                            <div
-                                className={`context-budget-fill ${isOverBudget ? 'over' : ''}`}
-                                style={{ width: `${Math.min(100, budgetPercent)}%` }}
+            {
+                activeTab === 'archive' && (
+                    <div className="ai-sidebar-body">
+                        <div className="archive-search-bar">
+                            <input
+                                className="archive-search-input"
+                                placeholder={t('aiSidebar.searchArchive')}
+                                value={archiveSearch}
+                                onChange={e => setArchiveSearch(e.target.value)}
                             />
                         </div>
-                    </div>
-
-                    {/* 搜索框 */}
-                    <div className="context-search-bar">
-                        <input
-                            className="context-search-input"
-                            placeholder={t('aiSidebar.searchContext')}
-                            value={contextSearch}
-                            onChange={e => setContextSearch(e.target.value)}
-                        />
-                    </div>
-
-                    {/* 分组列表 */}
-                    <div className="context-groups">
-                        {Object.entries(groupedItems).length === 0 && (
-                            <div className="chat-empty">
-                                <div>{t('aiSidebar.emptyContextIcon')}</div>
-                                <div>{t('aiSidebar.emptyContextTitle')}</div>
-                                <div className="chat-empty-hint">
-                                    {contextSearch ? t('aiSidebar.emptyContextHint1') : t('aiSidebar.emptyContextHint2')}
+                        <div className="archive-list">
+                            {filteredArchive.length === 0 && (
+                                <div className="chat-empty">
+                                    <div>{t('aiSidebar.emptyArchiveIcon')}</div>
+                                    <div>{t('aiSidebar.emptyArchiveTitle')}</div>
+                                    <div className="chat-empty-hint">{t('aiSidebar.emptyArchiveHint')}</div>
                                 </div>
-                            </div>
-                        )}
-                        {Object.entries(groupedItems).map(([groupName, items]) => {
-                            const isCollapsed = collapsedGroups.has(groupName);
-                            const checkedCount = items.filter(it => contextSelection?.has(it.id)).length;
-                            const groupTokens = items
-                                .filter(it => contextSelection?.has(it.id))
-                                .reduce((sum, it) => sum + it.tokens, 0);
-                            const allGroupChecked = checkedCount === items.length;
-
-                            return (
-                                <div key={groupName} className="context-group">
-                                    <div
-                                        className="context-group-header"
-                                        onClick={() => toggleCollapse(groupName)}
-                                    >
-                                        <span className="context-collapse-icon">
-                                            {isCollapsed ? '▶' : '▼'}
+                            )}
+                            {[...filteredArchive].reverse().map(item => (
+                                <div
+                                    key={item.id}
+                                    className={`archive-item ${item.status}`}
+                                    onClick={() => setExpandedArchive(expandedArchive === item.id ? null : item.id)}
+                                >
+                                    <div className="archive-item-header">
+                                        <span className={`archive-status ${item.status}`}>
+                                            {t(`aiSidebar.statuses.${item.status}`) || item.status}
                                         </span>
-                                        <input
-                                            type="checkbox"
-                                            checked={allGroupChecked && items.length > 0}
-                                            ref={el => {
-                                                if (el) el.indeterminate = checkedCount > 0 && checkedCount < items.length;
-                                            }}
-                                            onChange={(e) => {
-                                                e.stopPropagation();
-                                                toggleGroup(groupName);
-                                            }}
-                                            onClick={e => e.stopPropagation()}
-                                            className="context-group-check"
-                                        />
-                                        <span className="context-group-name">
-                                            {groupName} ({checkedCount}/{items.length})
-                                        </span>
-                                        <span className="context-group-tokens">
-                                            {groupTokens > 0 ? `${groupTokens.toLocaleString()}t` : '—'}
+                                        <span className="archive-mode">{t(`aiSidebar.modes.${item.mode}`) || item.mode}</span>
+                                        <span className="archive-time">
+                                            {new Date(item.timestamp).toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' })}
                                         </span>
                                     </div>
-                                    {!isCollapsed && (
-                                        <div className="context-group-items">
-                                            {items.map(item => (
-                                                <label key={item.id} className="context-item">
-                                                    <input
-                                                        type="checkbox"
-                                                        checked={contextSelection?.has(item.id) || false}
-                                                        onChange={() => toggleContextItem(item.id)}
-                                                        className="context-item-check"
-                                                    />
-                                                    <span className="context-item-name" title={item.name}>
-                                                        {item.name}
-                                                    </span>
-                                                    <span className="context-item-tokens">
-                                                        {item.tokens > 0 ? `${item.tokens.toLocaleString()}t` : '—'}
-                                                    </span>
-                                                </label>
-                                            ))}
+                                    <div className="archive-preview">
+                                        {item.text?.slice(0, 60)}…
+                                    </div>
+                                    {expandedArchive === item.id && (
+                                        <div className="archive-expanded">
+                                            <pre className="archive-full-text">{item.text}</pre>
+                                            <div className="archive-actions">
+                                                <button className="btn-mini" onClick={(e) => { e.stopPropagation(); onInsertText?.(item.text); }}>
+                                                    {t('aiSidebar.insertEditor')}
+                                                </button>
+                                                <button className="btn-mini" onClick={(e) => { e.stopPropagation(); navigator.clipboard.writeText(item.text); }}>
+                                                    {t('aiSidebar.copy')}
+                                                </button>
+                                            </div>
                                         </div>
                                     )}
                                 </div>
-                            );
-                        })}
+                            ))}
+                        </div>
                     </div>
+                )
+            }
 
-                    {/* 批量操作 */}
-                    <div className="context-actions">
-                        <button className="btn-mini" onClick={selectAll}>{t('aiSidebar.selectAll')}</button>
-                        <button className="btn-mini" onClick={selectNone}>{t('aiSidebar.selectNone')}</button>
-                        <button className="btn-mini" onClick={resetSelection}>{t('aiSidebar.reset')}</button>
-                        <button className="btn-mini" onClick={onOpenSettings}>{t('aiSidebar.settings')}</button>
+            {/* ==================== 📚 参考 Tab ==================== */}
+            {
+                activeTab === 'reference' && (
+                    <div className="ai-sidebar-body">
+                        {/* Token 预算进度条 */}
+                        <div className="context-budget-bar">
+                            <div className="context-budget-label">
+                                <span>{t('aiSidebar.tokenUsage')}</span>
+                                <span className={isOverBudget ? 'context-over-budget' : ''}>
+                                    {totalSelectedTokens.toLocaleString()} / {(INPUT_TOKEN_BUDGET / 1000).toFixed(0)}k
+                                </span>
+                            </div>
+                            <div className="context-budget-track">
+                                <div
+                                    className={`context-budget-fill ${isOverBudget ? 'over' : ''}`}
+                                    style={{ width: `${Math.min(100, budgetPercent)}%` }}
+                                />
+                            </div>
+                        </div>
+
+                        {/* 搜索框 */}
+                        <div className="context-search-bar">
+                            <input
+                                className="context-search-input"
+                                placeholder={t('aiSidebar.searchContext')}
+                                value={contextSearch}
+                                onChange={e => setContextSearch(e.target.value)}
+                            />
+                        </div>
+
+                        {/* 分组列表 */}
+                        <div className="context-groups">
+                            {Object.entries(groupedItems).length === 0 && (
+                                <div className="chat-empty">
+                                    <div>{t('aiSidebar.emptyContextIcon')}</div>
+                                    <div>{t('aiSidebar.emptyContextTitle')}</div>
+                                    <div className="chat-empty-hint">
+                                        {contextSearch ? t('aiSidebar.emptyContextHint1') : t('aiSidebar.emptyContextHint2')}
+                                    </div>
+                                </div>
+                            )}
+                            {Object.entries(groupedItems).map(([groupName, items]) => {
+                                const isCollapsed = collapsedGroups.has(groupName);
+                                const checkedCount = items.filter(it => contextSelection?.has(it.id)).length;
+                                const groupTokens = items
+                                    .filter(it => contextSelection?.has(it.id))
+                                    .reduce((sum, it) => sum + it.tokens, 0);
+                                const allGroupChecked = checkedCount === items.length;
+
+                                return (
+                                    <div key={groupName} className="context-group">
+                                        <div
+                                            className="context-group-header"
+                                            onClick={() => toggleCollapse(groupName)}
+                                        >
+                                            <span className="context-collapse-icon">
+                                                {isCollapsed ? '▶' : '▼'}
+                                            </span>
+                                            <input
+                                                type="checkbox"
+                                                checked={allGroupChecked && items.length > 0}
+                                                ref={el => {
+                                                    if (el) el.indeterminate = checkedCount > 0 && checkedCount < items.length;
+                                                }}
+                                                onChange={(e) => {
+                                                    e.stopPropagation();
+                                                    toggleGroup(groupName);
+                                                }}
+                                                onClick={e => e.stopPropagation()}
+                                                className="context-group-check"
+                                            />
+                                            <span className="context-group-name">
+                                                {groupName} ({checkedCount}/{items.length})
+                                            </span>
+                                            <span className="context-group-tokens">
+                                                {groupTokens > 0 ? `${groupTokens.toLocaleString()}t` : '—'}
+                                            </span>
+                                        </div>
+                                        {!isCollapsed && (
+                                            <div className="context-group-items">
+                                                {items.map(item => (
+                                                    <label key={item.id} className="context-item">
+                                                        <input
+                                                            type="checkbox"
+                                                            checked={contextSelection?.has(item.id) || false}
+                                                            onChange={() => toggleContextItem(item.id)}
+                                                            className="context-item-check"
+                                                        />
+                                                        <span className="context-item-name" title={item.name}>
+                                                            {item.name}
+                                                        </span>
+                                                        <span className="context-item-tokens">
+                                                            {item.tokens > 0 ? `${item.tokens.toLocaleString()}t` : '—'}
+                                                        </span>
+                                                    </label>
+                                                ))}
+                                            </div>
+                                        )}
+                                    </div>
+                                );
+                            })}
+                        </div>
+
+                        {/* 批量操作 */}
+                        <div className="context-actions">
+                            <button className="btn-mini" onClick={selectAll}>{t('aiSidebar.selectAll')}</button>
+                            <button className="btn-mini" onClick={selectNone}>{t('aiSidebar.selectNone')}</button>
+                            <button className="btn-mini" onClick={resetSelection}>{t('aiSidebar.reset')}</button>
+                            <button className="btn-mini" onClick={onOpenSettings}>{t('aiSidebar.settings')}</button>
+                        </div>
                     </div>
-                </div>
-            )}
+                )
+            }
 
             {/* ==================== 📊 统计 Tab ==================== */}
-            {activeTab === 'stats' && (
-                <div className="ai-sidebar-body">
-                    <div className="token-stats-panel">
-                        {tokenStats.totalRequests === 0 ? (
-                            <div className="chat-empty">
-                                <div>📊</div>
-                                <div>{t('aiSidebar.statsNoData')}</div>
-                                <div className="chat-empty-hint">{t('aiSidebar.statsNoDataHint')}</div>
-                            </div>
-                        ) : (
-                            <>
-                                {/* 汇总卡片 */}
-                                <div className="stats-grid">
-                                    <div className="stats-card">
-                                        <div className="stats-card-value">{tokenStats.totalTokens.toLocaleString()}</div>
-                                        <div className="stats-card-label">{t('aiSidebar.statsTotalTokens')}</div>
-                                    </div>
-                                    <div className="stats-card">
-                                        <div className="stats-card-value">{tokenStats.totalPromptTokens.toLocaleString()}</div>
-                                        <div className="stats-card-label">{t('aiSidebar.statsTotalInput')}</div>
-                                    </div>
-                                    <div className="stats-card">
-                                        <div className="stats-card-value">{tokenStats.totalCompletionTokens.toLocaleString()}</div>
-                                        <div className="stats-card-label">{t('aiSidebar.statsTotalOutput')}</div>
-                                    </div>
-                                    <div className="stats-card">
-                                        <div className="stats-card-value">{tokenStats.totalRequests}</div>
-                                        <div className="stats-card-label">{t('aiSidebar.statsTotalRequests')}</div>
-                                    </div>
-                                    <div className="stats-card">
-                                        <div className="stats-card-value">{tokenStats.trackedDays}</div>
-                                        <div className="stats-card-label">{t('aiSidebar.statsTrackedDays')}</div>
-                                    </div>
+            {
+                activeTab === 'stats' && (
+                    <div className="ai-sidebar-body">
+                        <div className="token-stats-panel">
+                            {tokenStats.totalRequests === 0 ? (
+                                <div className="chat-empty">
+                                    <div>📊</div>
+                                    <div>{t('aiSidebar.statsNoData')}</div>
+                                    <div className="chat-empty-hint">{t('aiSidebar.statsNoDataHint')}</div>
                                 </div>
-
-                                {/* 消耗速率 */}
-                                <div className="stats-section">
-                                    <div className="stats-section-title">{t('aiSidebar.statsRates')}</div>
-                                    <div className="stats-section-hint">{t('aiSidebar.statsRatesHint')}</div>
-                                    <table className="projection-table">
-                                        <thead>
-                                            <tr>
-                                                <th>{t('aiSidebar.statsRateMetric')}</th>
-                                                <th>{t('aiSidebar.statsRateDesc')}</th>
-                                                <th>{t('aiSidebar.statsRateValue')}</th>
-                                            </tr>
-                                        </thead>
-                                        <tbody>
-                                            {[
-                                                ['TPS', tokenStats.rates.tps, t('aiSidebar.statsRateTPS')],
-                                                ['TPM', tokenStats.rates.tpm, t('aiSidebar.statsRateTPM')],
-                                                ['TPH', tokenStats.rates.tph, t('aiSidebar.statsRateTPH')],
-                                                ['TPD', tokenStats.rates.tpd, t('aiSidebar.statsRateTPD')],
-                                                ['RPM', tokenStats.rates.rpm, t('aiSidebar.statsRateRPM')],
-                                                ['RPH', tokenStats.rates.rph, t('aiSidebar.statsRateRPH')],
-                                                ['RPD', tokenStats.rates.rpd, t('aiSidebar.statsRateRPD')],
-                                            ].map(([key, value, label]) => (
-                                                <tr key={key} title={label}>
-                                                    <td><strong>{key}</strong></td>
-                                                    <td className="stats-rate-desc">{label}</td>
-                                                    <td>{value < 1 ? value.toFixed(2) : value < 10 ? value.toFixed(1) : Math.round(value).toLocaleString()}</td>
-                                                </tr>
-                                            ))}
-                                        </tbody>
-                                    </table>
-                                </div>
-
-                                {/* 近期请求速度 */}
-                                {tokenStats.recentSpeeds.length > 0 && (
-                                    <div className="stats-section">
-                                        <div className="stats-section-title">{t('aiSidebar.statsRecentSpeeds')}</div>
-                                        <div className="speed-chart">
-                                            {(() => {
-                                                const maxSpeed = Math.max(...tokenStats.recentSpeeds.map(s => s.speed));
-                                                return tokenStats.recentSpeeds.map((s, i) => (
-                                                    <div key={i} className="speed-bar-wrapper" title={`${s.speed.toFixed(1)} tokens/s · ${s.tokens} tokens`}>
-                                                        <div
-                                                            className="speed-bar"
-                                                            style={{ height: `${Math.max(4, (s.speed / maxSpeed) * 100)}%` }}
-                                                        />
-                                                        <span className="speed-bar-label">{s.speed.toFixed(0)}</span>
-                                                    </div>
-                                                ));
-                                            })()}
+                            ) : (
+                                <>
+                                    {/* 汇总卡片 */}
+                                    <div className="stats-grid">
+                                        <div className="stats-card">
+                                            <div className="stats-card-value">{tokenStats.totalTokens.toLocaleString()}</div>
+                                            <div className="stats-card-label">{t('aiSidebar.statsTotalTokens')}</div>
+                                        </div>
+                                        <div className="stats-card">
+                                            <div className="stats-card-value">{tokenStats.totalPromptTokens.toLocaleString()}</div>
+                                            <div className="stats-card-label">{t('aiSidebar.statsTotalInput')}</div>
+                                        </div>
+                                        <div className="stats-card">
+                                            <div className="stats-card-value">{tokenStats.totalCompletionTokens.toLocaleString()}</div>
+                                            <div className="stats-card-label">{t('aiSidebar.statsTotalOutput')}</div>
+                                        </div>
+                                        <div className="stats-card">
+                                            <div className="stats-card-value">{tokenStats.totalRequests}</div>
+                                            <div className="stats-card-label">{t('aiSidebar.statsTotalRequests')}</div>
+                                        </div>
+                                        <div className="stats-card">
+                                            <div className="stats-card-value">{tokenStats.trackedDays}</div>
+                                            <div className="stats-card-label">{t('aiSidebar.statsTrackedDays')}</div>
                                         </div>
                                     </div>
-                                )}
 
-                                {/* 消耗预估 */}
-                                <div className="stats-section">
-                                    <div className="stats-section-title">{t('aiSidebar.statsProjections')}</div>
-                                    <div className="stats-section-hint">{t('aiSidebar.statsProjectionsHint')}</div>
-                                    <table className="projection-table">
-                                        <thead>
-                                            <tr>
-                                                <th>{t('aiSidebar.statsPeriod')}</th>
-                                                <th>{t('aiSidebar.statsTokens')}</th>
-                                                <th>{t('aiSidebar.statsRequests')}</th>
-                                            </tr>
-                                        </thead>
-                                        <tbody>
-                                            {[
-                                                ['statsPeriodDay', tokenStats.projections.perDay],
-                                                ['statsPeriodWeek', tokenStats.projections.perWeek],
-                                                ['statsPeriodMonth', tokenStats.projections.perMonth],
-                                                ['statsPeriodQuarter', tokenStats.projections.perQuarter],
-                                                ['statsPeriodYear', tokenStats.projections.perYear],
-                                            ].map(([key, data]) => (
-                                                <tr key={key}>
-                                                    <td>{t(`aiSidebar.${key}`)}</td>
-                                                    <td>{data.tokens.toLocaleString()}</td>
-                                                    <td>{data.requests}</td>
-                                                </tr>
-                                            ))}
-                                        </tbody>
-                                    </table>
-                                </div>
-
-                                {/* 渠道/模型分类统计 */}
-                                {tokenStats.modelBreakdown.length > 0 && (
+                                    {/* 消耗速率 */}
                                     <div className="stats-section">
-                                        <div className="stats-section-title">{t('aiSidebar.statsModelBreakdown')}</div>
-                                        <div className="stats-section-hint">{t('aiSidebar.statsModelBreakdownHint')}</div>
-                                        {tokenStats.modelBreakdown.map((m, idx) => {
-                                            const bgGradient = getProviderColor(m.provider, m.model);
-                                            return (
-                                                <div key={idx} className="model-info-card">
-                                                    <div className="model-info-header">
-                                                        <div className="model-info-title">
-                                                            <span className="model-info-badge" style={{ background: bgGradient }}>
-                                                                <ProviderLogo provider={m.provider} model={m.model} className="provider-logo-svg" />
-                                                                {m.provider}
-                                                            </span>
-                                                            <span className="model-info-name" title={m.model}>{m.model}</span>
-                                                        </div>
-                                                        <div className="model-info-percent">
-                                                            {Math.round(m.tokenPercent)}<span>%</span>
-                                                        </div>
-                                                    </div>
-
-                                                    <div className="model-info-bar-track">
-                                                        <div className="model-info-bar-fill" style={{ width: `${m.tokenPercent}%`, background: bgGradient }} />
-                                                    </div>
-
-                                                    <div className="model-info-stats">
-                                                        <div className="info-stat-group">
-                                                            <span className="info-stat-value">{m.tokens.toLocaleString()}</span>
-                                                            <span className="info-stat-label">Tokens</span>
-                                                        </div>
-                                                        <div className="info-stat-group">
-                                                            <span className="info-stat-value">{m.requests}</span>
-                                                            <span className="info-stat-label">{t('aiSidebar.statsRequests')}</span>
-                                                        </div>
-                                                        <div className="info-stat-group" title={`${t('aiSidebar.statsTotalInput')}: ${m.promptTokens} / ${t('aiSidebar.statsTotalOutput')}: ${m.completionTokens}`}>
-                                                            <span className="info-stat-value">
-                                                                {m.promptTokens > 1000 ? (m.promptTokens / 1000).toFixed(1) + 'k' : m.promptTokens} / {m.completionTokens > 1000 ? (m.completionTokens / 1000).toFixed(1) + 'k' : m.completionTokens}
-                                                            </span>
-                                                            <span className="info-stat-label">In / Out</span>
-                                                        </div>
-                                                        {m.avgSpeed > 0 && (
-                                                            <div className="info-stat-group">
-                                                                <span className="info-stat-value">{m.avgSpeed.toFixed(1)}</span>
-                                                                <span className="info-stat-label">t/s</span>
-                                                            </div>
-                                                        )}
-                                                    </div>
-                                                </div>
-                                            );
-                                        })}
+                                        <div className="stats-section-title">{t('aiSidebar.statsRates')}</div>
+                                        <div className="stats-section-hint">{t('aiSidebar.statsRatesHint')}</div>
+                                        <table className="projection-table">
+                                            <thead>
+                                                <tr>
+                                                    <th>{t('aiSidebar.statsRateMetric')}</th>
+                                                    <th>{t('aiSidebar.statsRateDesc')}</th>
+                                                    <th>{t('aiSidebar.statsRateValue')}</th>
+                                                </tr>
+                                            </thead>
+                                            <tbody>
+                                                {[
+                                                    ['TPS', tokenStats.rates.tps, t('aiSidebar.statsRateTPS')],
+                                                    ['TPM', tokenStats.rates.tpm, t('aiSidebar.statsRateTPM')],
+                                                    ['TPH', tokenStats.rates.tph, t('aiSidebar.statsRateTPH')],
+                                                    ['TPD', tokenStats.rates.tpd, t('aiSidebar.statsRateTPD')],
+                                                    ['RPM', tokenStats.rates.rpm, t('aiSidebar.statsRateRPM')],
+                                                    ['RPH', tokenStats.rates.rph, t('aiSidebar.statsRateRPH')],
+                                                    ['RPD', tokenStats.rates.rpd, t('aiSidebar.statsRateRPD')],
+                                                ].map(([key, value, label]) => (
+                                                    <tr key={key} title={label}>
+                                                        <td><strong>{key}</strong></td>
+                                                        <td className="stats-rate-desc">{label}</td>
+                                                        <td>{value < 1 ? value.toFixed(2) : value < 10 ? value.toFixed(1) : Math.round(value).toLocaleString()}</td>
+                                                    </tr>
+                                                ))}
+                                            </tbody>
+                                        </table>
                                     </div>
-                                )}
 
-                                {/* 清空按钮 */}
-                                <div className="stats-actions">
-                                    <button
-                                        className="btn-mini danger"
-                                        onClick={() => {
-                                            if (confirm(t('aiSidebar.statsClearConfirm'))) {
-                                                clearTokenStats();
-                                                setStatsVersion(v => v + 1);
-                                            }
-                                        }}
-                                    >
-                                        {t('aiSidebar.statsClearBtn')}
-                                    </button>
-                                </div>
-                            </>
-                        )}
+                                    {/* 近期请求速度 */}
+                                    {tokenStats.recentSpeeds.length > 0 && (
+                                        <div className="stats-section">
+                                            <div className="stats-section-title">{t('aiSidebar.statsRecentSpeeds')}</div>
+                                            <div className="speed-chart">
+                                                {(() => {
+                                                    const maxSpeed = Math.max(...tokenStats.recentSpeeds.map(s => s.speed));
+                                                    return tokenStats.recentSpeeds.map((s, i) => (
+                                                        <div key={i} className="speed-bar-wrapper" title={`${s.speed.toFixed(1)} tokens/s · ${s.tokens} tokens`}>
+                                                            <div
+                                                                className="speed-bar"
+                                                                style={{ height: `${Math.max(4, (s.speed / maxSpeed) * 100)}%` }}
+                                                            />
+                                                            <span className="speed-bar-label">{s.speed.toFixed(0)}</span>
+                                                        </div>
+                                                    ));
+                                                })()}
+                                            </div>
+                                        </div>
+                                    )}
+
+                                    {/* 消耗预估 */}
+                                    <div className="stats-section">
+                                        <div className="stats-section-title">{t('aiSidebar.statsProjections')}</div>
+                                        <div className="stats-section-hint">{t('aiSidebar.statsProjectionsHint')}</div>
+                                        <table className="projection-table">
+                                            <thead>
+                                                <tr>
+                                                    <th>{t('aiSidebar.statsPeriod')}</th>
+                                                    <th>{t('aiSidebar.statsTokens')}</th>
+                                                    <th>{t('aiSidebar.statsRequests')}</th>
+                                                </tr>
+                                            </thead>
+                                            <tbody>
+                                                {[
+                                                    ['statsPeriodDay', tokenStats.projections.perDay],
+                                                    ['statsPeriodWeek', tokenStats.projections.perWeek],
+                                                    ['statsPeriodMonth', tokenStats.projections.perMonth],
+                                                    ['statsPeriodQuarter', tokenStats.projections.perQuarter],
+                                                    ['statsPeriodYear', tokenStats.projections.perYear],
+                                                ].map(([key, data]) => (
+                                                    <tr key={key}>
+                                                        <td>{t(`aiSidebar.${key}`)}</td>
+                                                        <td>{data.tokens.toLocaleString()}</td>
+                                                        <td>{data.requests}</td>
+                                                    </tr>
+                                                ))}
+                                            </tbody>
+                                        </table>
+                                    </div>
+
+                                    {/* 渠道/模型分类统计 */}
+                                    {tokenStats.modelBreakdown.length > 0 && (
+                                        <div className="stats-section">
+                                            <div className="stats-section-title">{t('aiSidebar.statsModelBreakdown')}</div>
+                                            <div className="stats-section-hint">{t('aiSidebar.statsModelBreakdownHint')}</div>
+                                            {tokenStats.modelBreakdown.map((m, idx) => {
+                                                const bgGradient = getProviderColor(m.provider, m.model);
+                                                return (
+                                                    <div key={idx} className="model-info-card">
+                                                        <div className="model-info-header">
+                                                            <div className="model-info-title">
+                                                                <span className="model-info-badge" style={{ background: bgGradient }}>
+                                                                    <ProviderLogo provider={m.provider} model={m.model} className="provider-logo-svg" />
+                                                                    {m.provider}
+                                                                </span>
+                                                                <span className="model-info-name" title={m.model}>{m.model}</span>
+                                                            </div>
+                                                            <div className="model-info-percent">
+                                                                {Math.round(m.tokenPercent)}<span>%</span>
+                                                            </div>
+                                                        </div>
+
+                                                        <div className="model-info-bar-track">
+                                                            <div className="model-info-bar-fill" style={{ width: `${m.tokenPercent}%`, background: bgGradient }} />
+                                                        </div>
+
+                                                        <div className="model-info-stats">
+                                                            <div className="info-stat-group">
+                                                                <span className="info-stat-value">{m.tokens.toLocaleString()}</span>
+                                                                <span className="info-stat-label">Tokens</span>
+                                                            </div>
+                                                            <div className="info-stat-group">
+                                                                <span className="info-stat-value">{m.requests}</span>
+                                                                <span className="info-stat-label">{t('aiSidebar.statsRequests')}</span>
+                                                            </div>
+                                                            <div className="info-stat-group" title={`${t('aiSidebar.statsTotalInput')}: ${m.promptTokens} / ${t('aiSidebar.statsTotalOutput')}: ${m.completionTokens}`}>
+                                                                <span className="info-stat-value">
+                                                                    {m.promptTokens > 1000 ? (m.promptTokens / 1000).toFixed(1) + 'k' : m.promptTokens} / {m.completionTokens > 1000 ? (m.completionTokens / 1000).toFixed(1) + 'k' : m.completionTokens}
+                                                                </span>
+                                                                <span className="info-stat-label">In / Out</span>
+                                                            </div>
+                                                            {m.avgSpeed > 0 && (
+                                                                <div className="info-stat-group">
+                                                                    <span className="info-stat-value">{m.avgSpeed.toFixed(1)}</span>
+                                                                    <span className="info-stat-label">t/s</span>
+                                                                </div>
+                                                            )}
+                                                        </div>
+                                                    </div>
+                                                );
+                                            })}
+                                        </div>
+                                    )}
+
+                                    {/* 清空按钮 */}
+                                    <div className="stats-actions">
+                                        <button
+                                            className="btn-mini danger"
+                                            onClick={() => {
+                                                if (confirm(t('aiSidebar.statsClearConfirm'))) {
+                                                    clearTokenStats();
+                                                    setStatsVersion(v => v + 1);
+                                                }
+                                            }}
+                                        >
+                                            {t('aiSidebar.statsClearBtn')}
+                                        </button>
+                                    </div>
+                                </>
+                            )}
+                        </div>
                     </div>
-                </div>
-            )}
-        </div>
+                )
+            }
+        </div >
     );
 }

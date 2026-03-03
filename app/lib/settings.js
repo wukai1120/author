@@ -499,8 +499,12 @@ export async function addSettingsNode({ name, type, category, parentId, icon, co
     if (node.type === 'item') {
         const { apiConfig } = getProjectSettings();
         if (apiConfig.useCustomEmbed) {
-            const textToEmbed = extractTextForEmbedding(node);
-            node.embedding = await getEmbedding(textToEmbed, apiConfig);
+            try {
+                const textToEmbed = extractTextForEmbedding(node);
+                node.embedding = await getEmbedding(textToEmbed, apiConfig);
+            } catch (e) {
+                console.warn('[Settings] Embedding failed for new node, will retry later:', e.message);
+            }
         }
     }
 
@@ -594,6 +598,7 @@ export async function moveSettingsNode(id, newParentId) {
 }
 
 // 重新计算所有条目的 embedding (Async)
+// 每次请求间隔 500ms 以避免超出 TPM 限制
 export async function rebuildAllEmbeddings(onProgress) {
     const nodes = await getSettingsNodes();
     const { apiConfig } = getProjectSettings();
@@ -616,6 +621,10 @@ export async function rebuildAllEmbeddings(onProgress) {
         }
         done++;
         onProgress?.(done, items.length, failed);
+        // 请求间隔：避免超出 TPM / RPM 限制
+        if (done < items.length) {
+            await new Promise(r => setTimeout(r, 700));
+        }
     }
 
     await saveSettingsNodes(nodes);
