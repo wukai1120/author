@@ -134,7 +134,7 @@ export async function getContextItems(activeChapterId) {
                 id: `chapter-${ch.id}`,
                 group: '📑 章节',
                 name: `第${i + 1}章 ${ch.title}${i > currentIndex ? '（后续）' : ''}`,
-                tokens: estimateTokens(text ? text.slice(0, 1500) : ''),
+                tokens: estimateTokens(text),
                 category: 'chapter',
                 enabled: i < currentIndex, // 前文章节默认启用，后续章节默认不启用
             });
@@ -180,65 +180,60 @@ export async function buildContext(activeChapterId, selectedText, selectedIds = 
     // 获取所有有效的设定条目
     const allValidItemNodes = nodes.filter(n => n.type === 'item' && n.enabled !== false);
 
-    // 如果有 selectedIds，提取手动勾选的设定
-    const manualItemNodes = [];
-    const unselectedItemNodes = [];
+    let finalItemNodes;
 
-    for (const n of allValidItemNodes) {
-        if (selectedIds && selectedIds.has(`setting-${n.id}`)) {
-            manualItemNodes.push(n);
-        } else if (!selectedIds) {
-            // selectedIds 为 null — 兼容旧逻辑，全部走 RAG
-            unselectedItemNodes.push(n);
-        } else {
-            unselectedItemNodes.push(n);
-        }
-    }
+    if (!selectedIds) {
+        // selectedIds 为 null — 用户没有手动勾选任何参考
+        // 包含所有启用的设定条目，再用 RAG 补充排序（如果可用）
+        finalItemNodes = [...allValidItemNodes];
+    } else {
+        // 用户手动勾选了参考条目
+        const manualItemNodes = [];
+        const unselectedItemNodes = [];
 
-    // --- RAG 自动检索（仅当开启嵌入功能时） ---
-    let autoRetrievedNodes = [];
-    const queryText = (selectedText || '').trim();
-    if (settings.apiConfig?.useCustomEmbed && queryText && unselectedItemNodes.length > 0) {
-        try {
-            // 获取 Query 的 Embedding
-            // 此处的文本可以是光标前的一小段文字，为了简便使用 selectedText
-            // TODO: 这里如果是空文本，可能需要补当前章节最近的内容
-            let ragSourceText = queryText;
-            if (ragSourceText.length < 50 && currentChapter) {
-                // 文本太短，用当前章节末尾补充
-                const stripChapText = stripHtml(currentChapter.content || '').slice(-200);
-                ragSourceText = ragSourceText + '\n' + stripChapText;
+        for (const n of allValidItemNodes) {
+            if (selectedIds.has(`setting-${n.id}`)) {
+                manualItemNodes.push(n);
+            } else {
+                unselectedItemNodes.push(n);
             }
-
-            const queryVector = await getEmbedding(ragSourceText, settings.apiConfig);
-            if (queryVector) {
-                // 计算相似度
-                const scoredNodes = unselectedItemNodes.map(n => {
-                    if (!n.embedding) return { node: n, score: -1 };
-                    return { node: n, score: cosineSimilarity(queryVector, n.embedding) };
-                }).filter(x => x.score > 0.3); // 设置一个基础阈值 0.3
-
-                // 按分数降序
-                scoredNodes.sort((a, b) => b.score - a.score);
-
-                // 取 Top-K (比如最多取 5 个)
-                autoRetrievedNodes = scoredNodes.slice(0, 5).map(x => x.node);
-            }
-        } catch (e) {
-            console.error('RAG Retrieval failed:', e);
         }
-    }
 
-    // 合并手动与自动检索的节点
-    const itemNodes = [...manualItemNodes, ...autoRetrievedNodes];
-    // 去重
-    const finalItemNodes = Array.from(new Set(itemNodes));
+        // --- RAG 自动检索（仅当有手动勾选时，对未勾选项做 RAG 补充） ---
+        let autoRetrievedNodes = [];
+        const queryText = (selectedText || '').trim();
+        if (settings.apiConfig?.useCustomEmbed && queryText && unselectedItemNodes.length > 0) {
+            try {
+                let ragSourceText = queryText;
+                if (ragSourceText.length < 50 && currentChapter) {
+                    const stripChapText = stripHtml(currentChapter.content || '').slice(-200);
+                    ragSourceText = ragSourceText + '\n' + stripChapText;
+                }
+
+                const queryVector = await getEmbedding(ragSourceText, settings.apiConfig);
+                if (queryVector) {
+                    const scoredNodes = unselectedItemNodes.map(n => {
+                        if (!n.embedding) return { node: n, score: -1 };
+                        return { node: n, score: cosineSimilarity(queryVector, n.embedding) };
+                    }).filter(x => x.score > 0.3);
+
+                    scoredNodes.sort((a, b) => b.score - a.score);
+                    autoRetrievedNodes = scoredNodes.slice(0, 5).map(x => x.node);
+                }
+            } catch (e) {
+                console.error('RAG Retrieval failed:', e);
+            }
+        }
+
+        // 合并手动与自动检索的节点，去重
+        finalItemNodes = Array.from(new Set([...manualItemNodes, ...autoRetrievedNodes]));
+    }
 
     const writingMode = getWritingMode();
 
     // 先构建各模块的原始文本
     const rawModules = {
-        bookInfo: (selectedIds && selectedIds.has('bookinfo')) ? buildBookInfoContext(settings.bookInfo) : '',
+        bookInfo: (!selectedIds || selectedIds.has('bookinfo')) ? buildBookInfoContext(settings.bookInfo) : '',
         characters: buildCharactersContext(finalItemNodes.filter(n => n.category === 'character')),
         locations: buildLocationsContext(finalItemNodes.filter(n => n.category === 'location'), nodes),
         worldbuilding: buildWorldContext(finalItemNodes.filter(n => n.category === 'world'), nodes),
@@ -596,17 +591,6 @@ function buildPreviousContext(chapters, currentIndex) {
     return prevChapters.map((ch, i) => {
         const text = stripHtml(ch.content || '');
         if (!text) return `第${i + 1}章「${ch.title}」：（空）`;
-
-        if (i === currentIndex - 1) {
-            // 前一章：保留更多内容
-            const excerpt = text.length > 1500 ? '...' + text.slice(-1500) : text;
-            return `第${i + 1}章「${ch.title}」（前一章完整回顾）：\n${excerpt}`;
-        }
-
-        // 远距章节：只保留简要摘要
-        if (text.length > 300) {
-            return `第${i + 1}章「${ch.title}」：\n${text.slice(0, 150)}…（中间省略）…${text.slice(-100)}`;
-        }
         return `第${i + 1}章「${ch.title}」：\n${text}`;
     }).join('\n\n');
 }
@@ -620,15 +604,6 @@ function buildPreviousContextFiltered(chapters, currentIndex, selectedIds) {
         const i = chapters.indexOf(ch);
         const text = stripHtml(ch.content || '');
         if (!text) return `第${i + 1}章「${ch.title}」：（空）`;
-
-        if (i === currentIndex - 1) {
-            const excerpt = text.length > 1500 ? '...' + text.slice(-1500) : text;
-            return `第${i + 1}章「${ch.title}」（前一章完整回顾）：\n${excerpt}`;
-        }
-
-        if (text.length > 300) {
-            return `第${i + 1}章「${ch.title}」：\n${text.slice(0, 150)}…（中间省略）…${text.slice(-100)}`;
-        }
         return `第${i + 1}章「${ch.title}」：\n${text}`;
     }).join('\n\n');
 }
@@ -699,11 +674,9 @@ function getModeInstruction(mode) {
 【设定集管理能力】
 当用户要求你创建、修改或删除设定集条目时，你可以在回复中嵌入操作指令块。格式如下：
 
-\`\`\`
 [SETTINGS_ACTION]
 {"action":"add","category":"character","name":"角色姓名","content":{"role":"主角","personality":"...","background":"..."}}
 [/SETTINGS_ACTION]
-\`\`\`
 
 可用的 action: "add"（新增）、"update"（更新，需提供 nodeId）、"delete"（删除，需提供 nodeId）
 
@@ -720,6 +693,7 @@ function getModeInstruction(mode) {
 - 每个操作块只包含一个 JSON 对象
 - 如果需要多个操作，使用多个 [SETTINGS_ACTION] 块
 - 操作块前后必须有正常的文字说明
+- 不要用代码围栏（\`\`\`）包裹操作块，直接使用 [SETTINGS_ACTION] 标签
 - update 示例：{"action":"update","nodeId":"具体id","name":"新名称","content":{...}}
 - delete 示例：{"action":"delete","nodeId":"具体id"}
 - 在正文中已有角色/设定出现时，如果用户要求，可以从正文分析内容并自动创建设定`;
