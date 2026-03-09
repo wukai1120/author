@@ -1,11 +1,9 @@
 const { app, BrowserWindow, shell, dialog, ipcMain } = require('electron');
 const path = require('path');
-const { fork, execSync, spawn } = require('child_process');
+const { fork, execSync } = require('child_process');
 const http = require('http');
-const https = require('https');
 const net = require('net');
 const fs = require('fs');
-const os = require('os');
 
 // 加载 .env.local（轻量实现，无需 dotenv 依赖）
 (function loadEnvFile() {
@@ -334,109 +332,113 @@ app.whenReady().then(async () => {
     }
 
     createWindow();
+    setupAutoUpdater();
 });
 
-// ==================== 自动下载更新 ====================
+// ==================== 自动更新 (electron-updater) ====================
 
-function httpsGet(url) {
-    return new Promise((resolve, reject) => {
-        https.get(url, { headers: { 'User-Agent': 'Author-App' } }, (res) => {
-            // 跟随重定向
-            if (res.statusCode >= 300 && res.statusCode < 400 && res.headers.location) {
-                httpsGet(res.headers.location).then(resolve).catch(reject);
-                return;
-            }
-            resolve(res);
-        }).on('error', reject);
-    });
-}
+function setupAutoUpdater() {
+    // electron-updater 仅在打包后可用
+    if (isDev || !app.isPackaged) {
+        log('Dev mode — skipping auto-updater setup');
+        return;
+    }
 
-ipcMain.handle('download-and-install-update', async (event) => {
+    let autoUpdater;
     try {
-        log('=== Auto-update started ===');
+        autoUpdater = require('electron-updater').autoUpdater;
+    } catch (err) {
+        log('Failed to load electron-updater: ' + err.message);
+        return;
+    }
 
-        // 1. 获取最新 release 信息
-        const releaseRes = await new Promise((resolve, reject) => {
-            https.get('https://api.github.com/repos/YuanShiJiLoong/author/releases/latest', {
-                headers: { 'Accept': 'application/vnd.github.v3+json', 'User-Agent': 'Author-App' },
-            }, (res) => {
-                let data = '';
-                res.on('data', chunk => data += chunk);
-                res.on('end', () => resolve(JSON.parse(data)));
-            }).on('error', reject);
-        });
+    // 配置
+    autoUpdater.autoDownload = false;        // 不自动下载，等用户确认
+    autoUpdater.autoInstallOnAppQuit = true;  // 退出时自动安装已下载的更新
+    autoUpdater.logger = { info: log, warn: log, error: log, debug: log };
 
-        // 2. 找到 .exe 安装包
-        const exeAsset = releaseRes.assets?.find(a => a.name.endsWith('.exe'));
-        if (!exeAsset) {
-            log('No .exe asset found in release');
-            return { success: false, error: '未找到安装包' };
-        }
-
-        const downloadUrl = exeAsset.browser_download_url;
-        const fileName = exeAsset.name;
-        const totalSize = exeAsset.size;
-        const savePath = path.join(os.tmpdir(), fileName);
-
-        log(`Downloading: ${fileName} (${(totalSize / 1024 / 1024).toFixed(1)} MB)`);
-        log(`URL: ${downloadUrl}`);
-        log(`Save to: ${savePath}`);
-
-        // 3. 下载文件（跟随重定向）
-        const res = await httpsGet(downloadUrl);
-
-        if (res.statusCode !== 200) {
-            log(`Download failed, status: ${res.statusCode}`);
-            return { success: false, error: `下载失败 (HTTP ${res.statusCode})` };
-        }
-
-        const file = fs.createWriteStream(savePath);
-        let downloaded = 0;
-        let lastProgress = 0;
-
-        await new Promise((resolve, reject) => {
-            res.on('data', (chunk) => {
-                downloaded += chunk.length;
-                const progress = Math.floor(downloaded / totalSize * 100);
-                if (progress > lastProgress) {
-                    lastProgress = progress;
-                    // 发送进度到渲染进程
-                    if (mainWindow && !mainWindow.isDestroyed()) {
-                        mainWindow.webContents.send('update-download-progress', { progress, downloaded, total: totalSize });
-                    }
-                }
+    // ---- 事件转发到渲染进程 ----
+    autoUpdater.on('update-available', (info) => {
+        log(`Update available: v${info.version}`);
+        if (mainWindow && !mainWindow.isDestroyed()) {
+            mainWindow.webContents.send('update-available', {
+                version: info.version,
+                releaseDate: info.releaseDate,
             });
-            res.pipe(file);
-            file.on('finish', () => { file.close(); resolve(); });
-            file.on('error', reject);
-            res.on('error', reject);
-        });
+        }
+    });
 
-        log(`Download complete: ${savePath}`);
+    autoUpdater.on('update-not-available', () => {
+        log('No update available');
+    });
 
-        // 4. 先退出应用，再延迟启动安装程序
-        // 使用 cmd /C 延迟启动安装器，确保当前应用完全退出后再运行
-        log('Scheduling installer launch and quitting app...');
-        const delayCmd = `timeout /t 3 /nobreak >nul & start "" "${savePath}"`;
-        spawn(delayCmd, [], {
-            detached: true,
-            stdio: 'ignore',
-            shell: true,
-        }).unref();
+    autoUpdater.on('download-progress', (progress) => {
+        if (mainWindow && !mainWindow.isDestroyed()) {
+            mainWindow.webContents.send('update-download-progress', {
+                progress: Math.floor(progress.percent),
+                bytesPerSecond: progress.bytesPerSecond,
+                downloaded: progress.transferred,
+                total: progress.total,
+            });
+        }
+    });
 
-        // 先杀掉 Next.js 服务器子进程
+    autoUpdater.on('update-downloaded', (info) => {
+        log(`Update downloaded: v${info.version}`);
+        if (mainWindow && !mainWindow.isDestroyed()) {
+            mainWindow.webContents.send('update-downloaded', {
+                version: info.version,
+            });
+        }
+    });
+
+    autoUpdater.on('error', (err) => {
+        log('Auto-updater error: ' + err.message);
+        if (mainWindow && !mainWindow.isDestroyed()) {
+            mainWindow.webContents.send('update-error', {
+                error: err.message,
+            });
+        }
+    });
+
+    // ---- IPC 处理 ----
+    ipcMain.handle('check-for-update', async () => {
+        try {
+            const result = await autoUpdater.checkForUpdates();
+            return { success: true, version: result?.updateInfo?.version };
+        } catch (err) {
+            log('Check update error: ' + err.message);
+            return { success: false, error: err.message };
+        }
+    });
+
+    ipcMain.handle('download-update', async () => {
+        try {
+            await autoUpdater.downloadUpdate();
+            return { success: true };
+        } catch (err) {
+            log('Download update error: ' + err.message);
+            return { success: false, error: err.message };
+        }
+    });
+
+    ipcMain.handle('quit-and-install', () => {
+        log('User requested quit-and-install');
         if (serverProcess) {
             serverProcess.kill();
             serverProcess = null;
         }
-        app.quit();
+        autoUpdater.quitAndInstall(false, true); // isSilent=false, isForceRunAfter=true
+    });
 
-        return { success: true };
-    } catch (err) {
-        log(`Auto-update error: ${err.message}`);
-        return { success: false, error: err.message };
-    }
-});
+    // 窗口显示后 5 秒自动检查一次更新
+    setTimeout(() => {
+        log('Auto-checking for updates...');
+        autoUpdater.checkForUpdates().catch(err => {
+            log('Auto-check update failed: ' + err.message);
+        });
+    }, 5000);
+}
 
 app.on('second-instance', () => {
     if (mainWindow) {

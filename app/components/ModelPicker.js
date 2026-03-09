@@ -98,7 +98,7 @@ export default function ModelPicker({ target = 'editor', onOpenSettings, classNa
 
         for (const p of PROVIDERS) {
             const cfg = pc[p.key];
-            const hasKey = !!(cfg?.apiKey);
+            const hasKey = !!(cfg?.apiKey || (config.active?.provider === p.key && config.active?.apiKey));
             // 只显示用户在设置中勾选加入快切列表的模型
             const userModels = cfg?.models || [];
 
@@ -110,9 +110,9 @@ export default function ModelPicker({ target = 'editor', onOpenSettings, classNa
                 : userModels;
 
             if (!providerMatch && filteredModels.length === 0) continue;
-            // 已配置且有模型的才显示，未配置的供应商不显示
-            if (!hasKey || userModels.length === 0) {
-                if (hasKey && userModels.length === 0) {
+            // 有勾选模型的供应商始终显示（无论是否有 key），没有勾选模型且有 key 的提示去设置
+            if (userModels.length === 0) {
+                if (hasKey) {
                     // 有 key 但没勾选模型 — 显示在已配置区提示去设置
                     configured.push({ provider: p, hasKey, models: [], allModels: [] });
                 }
@@ -265,16 +265,25 @@ export default function ModelPicker({ target = 'editor', onOpenSettings, classNa
                                                     </span>
                                                 )}
                                             </div>
-                                            {hasKey && models.map(m => {
+                                            {models.map(m => {
                                                 const isActive = activeProvider === p.key && activeModel === m;
                                                 return (
                                                     <button
                                                         key={m}
-                                                        className={`model-picker-item ${isActive ? 'active' : ''}`}
-                                                        onClick={() => selectModel(p.key, m)}
+                                                        className={`model-picker-item ${isActive ? 'active' : ''} ${!hasKey ? 'no-key' : ''}`}
+                                                        onClick={() => {
+                                                            if (hasKey) {
+                                                                selectModel(p.key, m);
+                                                            } else {
+                                                                setOpen(false);
+                                                                if (onOpenSettings) onOpenSettings();
+                                                                else setShowSettings(true);
+                                                            }
+                                                        }}
                                                     >
-                                                        <span className="model-picker-item-name">{m}</span>
+                                                        <span className="model-picker-item-name" style={!hasKey ? { opacity: 0.55 } : undefined}>{m}</span>
                                                         {isActive && <span className="model-picker-check">✓</span>}
+                                                        {!hasKey && <span className="model-picker-no-key-hint">🔑</span>}
                                                     </button>
                                                 );
                                             })}

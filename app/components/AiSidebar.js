@@ -17,8 +17,8 @@ import { useI18n } from '../lib/useI18n';
 // 解析消息中的 [SETTINGS_ACTION] 块（支持可选的代码围栏包裹）
 function parseSettingsActions(content) {
     if (!content) return { parts: [content || ''], actions: [] };
-    // 匹配带或不带 ``` 包裹的 [SETTINGS_ACTION] 块
-    const regex = /(?:```[^\n]*\n)?\[SETTINGS_ACTION\]\s*([\s\S]*?)\s*\[\/SETTINGS_ACTION\](?:\n```)?/g;
+    // 匹配带或不带 ``` 包裹的 [SETTINGS_ACTION] 块（兼容 ```json / ```JSON / ``` 等）
+    const regex = /(?:```(?:\w*)\s*\n?)?\[SETTINGS_ACTION\]\s*([\s\S]*?)\s*\[\/SETTINGS_ACTION\](?:\s*\n?```)?/g;
     const parts = [];
     const actions = [];
     let lastIndex = 0;
@@ -26,11 +26,25 @@ function parseSettingsActions(content) {
     while ((match = regex.exec(content)) !== null) {
         if (match.index > lastIndex) parts.push(content.slice(lastIndex, match.index));
         try {
-            const action = JSON.parse(match[1].trim());
+            // 清理 AI 可能添加的多余格式（如行首 ```json 残留、注释等）
+            let jsonStr = match[1].trim();
+            // 有时 AI 在 JSON 外再套一层 ``` ，去掉
+            jsonStr = jsonStr.replace(/^```\w*\s*\n?/, '').replace(/\n?```\s*$/, '');
+            const action = JSON.parse(jsonStr);
             actions.push(action);
             parts.push({ _action: true, index: actions.length - 1 });
         } catch {
-            parts.push(match[0]); // parse failed, show raw
+            // JSON 解析失败 — 尝试修复常见问题（尾部逗号等）
+            try {
+                let fixedJson = match[1].trim()
+                    .replace(/^```\w*\s*\n?/, '').replace(/\n?```\s*$/, '')
+                    .replace(/,\s*([}\]])/g, '$1');  // 去掉尾部逗号
+                const action = JSON.parse(fixedJson);
+                actions.push(action);
+                parts.push({ _action: true, index: actions.length - 1 });
+            } catch {
+                parts.push(match[0]); // 真的无法解析，显示原文
+            }
         }
         lastIndex = regex.lastIndex;
     }
@@ -162,6 +176,8 @@ export default function AiSidebar({ onInsertText }) {
     const chatEndRef = useRef(null);
     const chatContainerRef = useRef(null);
     const inputRef = useRef(null);
+    const abortRef = useRef(null);
+    const [viewingContext, setViewingContext] = useState(null);
 
     // 新消息时只在用户已滚动到底部时才自动滚动（不劫持用户滚动）
     useEffect(() => {
@@ -213,7 +229,7 @@ export default function AiSidebar({ onInsertText }) {
     }, [slidingWindow, slidingWindowSize, chatHistory.length]);
 
     // --- 通用 SSE 流式读取，支持 text+thinking+tools ---
-    const streamResponse = useCallback(async (apiEndpoint, systemPrompt, userPrompt, apiConfig, onUpdate, onDone) => {
+    const streamResponse = useCallback(async (apiEndpoint, systemPrompt, userPrompt, apiConfig, onUpdate, onDone, signal) => {
         // 构建工具配置
         const provider = apiConfig?.provider;
         const isGeminiNative = ['gemini-native', 'custom-gemini'].includes(provider);
@@ -254,6 +270,7 @@ export default function AiSidebar({ onInsertText }) {
                 } : {}),
                 ...(toolsPayload ? { tools: toolsPayload } : {}),
             }),
+            ...(signal ? { signal } : {}),
         });
 
         const contentType = res.headers.get('content-type') || '';
@@ -327,11 +344,21 @@ export default function AiSidebar({ onInsertText }) {
         onDone(fullText, fullThinking, toolCalls);
     }, []);
 
+    // 终止生成
+    const handleStop = useCallback(() => {
+        if (abortRef.current) {
+            abortRef.current.abort();
+            abortRef.current = null;
+        }
+    }, []);
+
     const onChatMessage = useCallback(async (text, selectedHistory) => {
         const userMsg = { id: `msg-${Date.now()}-u`, role: 'user', content: text, timestamp: Date.now() };
         setSessionStore(prev => addMessage(prev, userMsg));
         setChatStreaming(true);
         const aiMsgId = `msg-${Date.now()}-a`;
+        const controller = new AbortController();
+        abortRef.current = controller;
 
         try {
             const apiConfig = getChatApiConfig();
@@ -346,7 +373,21 @@ export default function AiSidebar({ onInsertText }) {
             const historyForApi = selectedHistory.map(m => `${m.role === 'user' ? t('aiSidebar.roleYou') : t('aiSidebar.roleAi')}: ${m.content}`).join('\n');
             const userPrompt = historyForApi ? `${historyForApi}\n${t('aiSidebar.roleYou')}: ${text}` : text;
 
-            const aiPlaceholder = { id: aiMsgId, role: 'assistant', content: '', thinking: '', toolCalls: [], timestamp: Date.now() };
+            // 保存上下文快照（不含提示词模板和安全策略）
+            const contextSnapshot = {};
+            if (context.bookInfo) contextSnapshot['📖 作品信息'] = context.bookInfo;
+            if (context.characters) contextSnapshot['👤 人物档案'] = context.characters;
+            if (context.locations) contextSnapshot['📍 空间/地点'] = context.locations;
+            if (context.worldbuilding) contextSnapshot['🌍 世界观'] = context.worldbuilding;
+            if (context.objects) contextSnapshot['🔮 物品/道具'] = context.objects;
+            if (context.plotOutline) contextSnapshot['📋 剧情大纲'] = context.plotOutline;
+            if (context.writingRules) contextSnapshot['📏 写作规则'] = context.writingRules;
+            if (context.customSettings) contextSnapshot['📎 补充设定'] = context.customSettings;
+            if (context.previousChapters) contextSnapshot['📑 前文回顾'] = context.previousChapters;
+            if (context.currentChapter) contextSnapshot['✏️ 当前章节'] = context.currentChapter;
+            contextSnapshot['💬 对话历史'] = userPrompt;
+
+            const aiPlaceholder = { id: aiMsgId, role: 'assistant', content: '', thinking: '', toolCalls: [], timestamp: Date.now(), _context: contextSnapshot };
             setSessionStore(prev => addMessage(prev, aiPlaceholder));
 
             await streamResponse(apiEndpoint, systemPrompt, userPrompt, apiConfig,
@@ -372,12 +413,33 @@ export default function AiSidebar({ onInsertText }) {
                         saveSessionStore(finalStore);
                         return finalStore;
                     });
-                }
+                },
+                controller.signal
             );
         } catch (err) {
-            const errorMsg = { id: `msg-${Date.now()}-e`, role: 'assistant', content: `❌ ${err.message}`, timestamp: Date.now() };
-            setSessionStore(prev => addMessage(prev, errorMsg));
+            if (err.name === 'AbortError') {
+                // 用户主动终止 — 保留已生成的内容
+                setSessionStore(prev => {
+                    const store = {
+                        ...prev, sessions: prev.sessions.map(s => {
+                            if (s.id !== prev.activeSessionId) return s;
+                            return {
+                                ...s, messages: s.messages.map(m => {
+                                    if (m.id !== aiMsgId) return m;
+                                    return { ...m, content: (m.content || '') + '\n\n*（已终止生成）*' };
+                                }), updatedAt: Date.now(),
+                            };
+                        }),
+                    };
+                    saveSessionStore(store);
+                    return store;
+                });
+            } else {
+                const errorMsg = { id: `msg-${Date.now()}-e`, role: 'assistant', content: `❌ ${err.message}`, timestamp: Date.now() };
+                setSessionStore(prev => addMessage(prev, errorMsg));
+            }
         } finally {
+            abortRef.current = null;
             setChatStreaming(false);
         }
     }, [activeChapterId, contextSelection, streamResponse, setSessionStore, setChatStreaming]);
@@ -399,7 +461,8 @@ export default function AiSidebar({ onInsertText }) {
         const userMsg = msgs[userMsgIdx];
         const priorHistory = msgs.slice(0, userMsgIdx);
         setChatStreaming(true);
-        console.log('[Regenerate] User msg:', userMsg.content.slice(0, 50));
+        const controller = new AbortController();
+        abortRef.current = controller;
 
         try {
             const apiConfig = getChatApiConfig();
@@ -423,7 +486,6 @@ export default function AiSidebar({ onInsertText }) {
                         ...s, messages: s.messages.map(m => {
                             if (m.id !== aiMsgId) return m;
                             const variants = m.variants || [{ content: m.content, thinking: m.thinking || '', timestamp: m.timestamp }];
-                            console.log('[Regenerate] Initialized variants:', variants.length);
                             return { ...m, variants, content: '', thinking: '', toolCalls: [] };
                         }),
                     };
@@ -440,23 +502,41 @@ export default function AiSidebar({ onInsertText }) {
                     }));
                 },
                 (finalText, finalThinking, finalToolCalls) => {
-                    console.log('[Regenerate] Stream done, adding variant. Final text length:', finalText?.length);
                     setSessionStore(prev => {
                         const newStore = addVariant(prev, aiMsgId, { content: finalText || '（AI 未返回内容）', thinking: finalThinking, toolCalls: finalToolCalls, timestamp: Date.now() });
-                        console.log('[Regenerate] After addVariant, checking msg:', newStore.sessions.find(s => s.id === newStore.activeSessionId)?.messages.find(m => m.id === aiMsgId)?.variants?.length, 'variants');
                         saveSessionStore(newStore);
                         return newStore;
                     });
-                }
+                },
+                controller.signal
             );
         } catch (err) {
-            setSessionStore(prev => ({
-                ...prev, sessions: prev.sessions.map(s => {
-                    if (s.id !== prev.activeSessionId) return s;
-                    return { ...s, messages: s.messages.map(m => m.id === aiMsgId ? { ...m, content: `❌ ${err.message}` } : m) };
-                }),
-            }));
+            if (err.name === 'AbortError') {
+                setSessionStore(prev => {
+                    const store = {
+                        ...prev, sessions: prev.sessions.map(s => {
+                            if (s.id !== prev.activeSessionId) return s;
+                            return {
+                                ...s, messages: s.messages.map(m => {
+                                    if (m.id !== aiMsgId) return m;
+                                    return { ...m, content: (m.content || '') + '\n\n*（已终止生成）*' };
+                                }), updatedAt: Date.now(),
+                            };
+                        }),
+                    };
+                    saveSessionStore(store);
+                    return store;
+                });
+            } else {
+                setSessionStore(prev => ({
+                    ...prev, sessions: prev.sessions.map(s => {
+                        if (s.id !== prev.activeSessionId) return s;
+                        return { ...s, messages: s.messages.map(m => m.id === aiMsgId ? { ...m, content: `❌ ${err.message}` } : m) };
+                    }),
+                }));
+            }
         } finally {
+            abortRef.current = null;
             setChatStreaming(false);
         }
     }, [chatHistory, chatStreaming, activeChapterId, contextSelection, streamResponse, setSessionStore, setChatStreaming]);
@@ -723,790 +803,851 @@ export default function AiSidebar({ onInsertText }) {
     if (!open) return null;
 
     return (
-        <div className="ai-sidebar">
-            {/* 标题栏 */}
-            <div className="ai-sidebar-header">
-                <span className="ai-sidebar-title">{t('aiSidebar.title')}</span>
-                <ModelPicker target="chat" dropDirection="down" />
-                <div style={{ display: 'flex', gap: '4px' }}>
-                    <button
-                        className="btn btn-ghost btn-icon btn-sm"
-                        onClick={() => setShowSessionList(!showSessionList)}
-                        title={t('aiSidebar.btnSessionList')}
-                    >📂</button>
-                    <button
-                        className="btn btn-ghost btn-icon btn-sm"
-                        onClick={onNewSession}
-                        title={t('aiSidebar.btnNewSession')}
-                    >＋</button>
-                    <button className="btn btn-ghost btn-icon btn-sm" onClick={onClose} title={t('aiSidebar.btnClose')}>✕</button>
-                </div>
-            </div>
-
-            {/* 会话列表面板 */}
-            {showSessionList && (
-                <div className="session-list-panel">
-                    <div className="session-list-header">
-                        <span>{t('aiSidebar.historyCount').replace('{count}', sessions.length)}</span>
+        <>
+            <div className="ai-sidebar">
+                {/* 标题栏 */}
+                <div className="ai-sidebar-header">
+                    <span className="ai-sidebar-title">{t('aiSidebar.title')}</span>
+                    <ModelPicker target="chat" dropDirection="down" />
+                    <div style={{ display: 'flex', gap: '4px' }}>
+                        <button
+                            className="btn btn-ghost btn-icon btn-sm"
+                            onClick={() => setShowSessionList(!showSessionList)}
+                            title={t('aiSidebar.btnSessionList')}
+                        >📂</button>
+                        <button
+                            className="btn btn-ghost btn-icon btn-sm"
+                            onClick={onNewSession}
+                            title={t('aiSidebar.btnNewSession')}
+                        >＋</button>
+                        <button className="btn btn-ghost btn-icon btn-sm" onClick={onClose} title={t('aiSidebar.btnClose')}>✕</button>
                     </div>
-                    <div className="session-list">
-                        {[...sessions].reverse().map(s => (
-                            <div
-                                key={s.id}
-                                className={`session-item ${s.id === activeSessionId ? 'active' : ''}`}
-                                onClick={() => { onSwitchSession?.(s.id); setShowSessionList(false); }}
-                            >
-                                {renamingSessionId === s.id ? (
-                                    <input
-                                        className="session-rename-input"
-                                        value={renameTitle}
-                                        onChange={e => setRenameTitle(e.target.value)}
-                                        onKeyDown={e => {
-                                            if (e.key === 'Enter') {
+                </div>
+
+                {/* 会话列表面板 */}
+                {showSessionList && (
+                    <div className="session-list-panel">
+                        <div className="session-list-header">
+                            <span>{t('aiSidebar.historyCount').replace('{count}', sessions.length)}</span>
+                        </div>
+                        <div className="session-list">
+                            {[...sessions].reverse().map(s => (
+                                <div
+                                    key={s.id}
+                                    className={`session-item ${s.id === activeSessionId ? 'active' : ''}`}
+                                    onClick={() => { onSwitchSession?.(s.id); setShowSessionList(false); }}
+                                >
+                                    {renamingSessionId === s.id ? (
+                                        <input
+                                            className="session-rename-input"
+                                            value={renameTitle}
+                                            onChange={e => setRenameTitle(e.target.value)}
+                                            onKeyDown={e => {
+                                                if (e.key === 'Enter') {
+                                                    onRenameSession?.(s.id, renameTitle.trim() || s.title);
+                                                    setRenamingSessionId(null);
+                                                } else if (e.key === 'Escape') {
+                                                    setRenamingSessionId(null);
+                                                }
+                                            }}
+                                            onBlur={() => {
                                                 onRenameSession?.(s.id, renameTitle.trim() || s.title);
                                                 setRenamingSessionId(null);
-                                            } else if (e.key === 'Escape') {
-                                                setRenamingSessionId(null);
-                                            }
-                                        }}
-                                        onBlur={() => {
-                                            onRenameSession?.(s.id, renameTitle.trim() || s.title);
-                                            setRenamingSessionId(null);
-                                        }}
-                                        onClick={e => e.stopPropagation()}
-                                        autoFocus
-                                    />
-                                ) : (
-                                    <>
-                                        <div className="session-item-info">
-                                            <span className="session-item-title">{s.title}</span>
-                                            <span className="session-item-meta">
-                                                {s.messages?.length || 0} 条 · {new Date(s.updatedAt || s.createdAt).toLocaleDateString('zh-CN')}
-                                            </span>
-                                        </div>
-                                        <div className="session-item-actions" onClick={e => e.stopPropagation()}>
-                                            <button
-                                                className="btn-mini-icon"
-                                                onClick={() => { setRenamingSessionId(s.id); setRenameTitle(s.title); }}
-                                                title={t('aiSidebar.rename')}
-                                            >✎</button>
-                                            {sessions.length > 1 && (
-                                                <button
-                                                    className="btn-mini-icon danger"
-                                                    onClick={() => onDeleteSession?.(s.id)}
-                                                    title={t('aiSidebar.delete')}
-                                                >🗑</button>
-                                            )}
-                                        </div>
-                                    </>
-                                )}
-                            </div>
-                        ))}
-                    </div>
-                </div>
-            )}
-
-            {/* Tab 切换 */}
-            <div className="ai-sidebar-tabs">
-                {tabs.map(t => (
-                    <button
-                        key={t.key}
-                        className={`ai-sidebar-tab ${activeTab === t.key ? 'active' : ''}`}
-                        onClick={() => setActiveTab(t.key)}
-                    >
-                        {t.label}
-                    </button>
-                ))}
-            </div>
-
-            {/* ==================== 💬 对话 Tab ==================== */}
-            {activeTab === 'chat' && (
-                <div className="ai-sidebar-body">
-                    {/* 对话控制栏 */}
-                    <div className="chat-controls">
-                        <label className="chat-control-item">
-                            <input
-                                type="checkbox"
-                                checked={slidingWindow}
-                                onChange={e => setSlidingWindow(e.target.checked)}
-                            />
-                            <span>{t('aiSidebar.slidingWindow')}</span>
-                            {slidingWindow && (
-                                <input
-                                    type="number" min="2" max="20"
-                                    value={slidingWindowSize}
-                                    onChange={e => setSlidingWindowSize(Number(e.target.value))}
-                                    className="chat-window-size-input"
-                                />
-                            )}
-                        </label>
-                        <div className="chat-control-actions">
-                            <button
-                                className="btn-mini"
-                                onClick={handleSummarize}
-                                disabled={chatHistory.filter(m => checkedHistory.has(m.id)).length < 2}
-                                title={t('aiSidebar.summarizeTitle')}
-                            >
-                                {t('aiSidebar.summarize')}
-                            </button>
-                            <button className="btn-mini danger" onClick={handleClearChat} title={t('aiSidebar.clearChatTitle')}>
-                                {t('aiSidebar.clearChat')}
-                            </button>
-                        </div>
-                    </div>
-
-                    {summaryDraft !== null && (
-                        <div className="summary-editor">
-                            <div className="summary-editor-label">{t('aiSidebar.editSummary')}</div>
-                            <textarea
-                                className="summary-textarea"
-                                value={summaryDraft}
-                                onChange={e => setSummaryDraft(e.target.value)}
-                                rows={5}
-                            />
-                            <div className="summary-actions">
-                                <button className="btn-mini" onClick={() => setSummaryDraft(null)}>{t('aiSidebar.cancel')}</button>
-                                <button className="btn-mini primary" onClick={confirmSummary}>{t('aiSidebar.confirmReplace')}</button>
-                            </div>
-                        </div>
-                    )}
-
-                    {/* 对话消息列表 */}
-                    <div className="chat-messages" ref={chatContainerRef}>
-                        {chatHistory.length === 0 && (
-                            <div className="chat-empty">
-                                <div>{t('aiSidebar.emptyChatIcon')}</div>
-                                <div>{t('aiSidebar.emptyChatTitle')}</div>
-                                <div className="chat-empty-hint">{t('aiSidebar.emptyChatHint')}</div>
-                            </div>
-                        )}
-                        {chatHistory.map(msg => {
-                            const isStreaming = chatStreaming && msg.role === 'assistant' && msg === chatHistory[chatHistory.length - 1];
-                            const hasVariants = msg.variants && msg.variants.length > 1;
-                            const variantIdx = msg.activeVariant ?? 0;
-                            const variantTotal = msg.variants?.length || 1;
-
-                            return (
-                                <div key={msg.id} className={`chat-message ${msg.role}`}>
-                                    <div className="chat-message-header">
-                                        <input
-                                            type="checkbox"
-                                            checked={checkedHistory.has(msg.id)}
-                                            onChange={() => toggleCheck(msg.id)}
-                                            className="chat-check"
-                                        // TODO: Make this tooltip translate string and optional
-                                        // title="勾选以包含在下次请求中" 
+                                            }}
+                                            onClick={e => e.stopPropagation()}
+                                            autoFocus
                                         />
-                                        <span className="chat-role">{msg.role === 'user' ? t('aiSidebar.roleYou') : msg.isSummary ? t('aiSidebar.roleSummary') : t('aiSidebar.roleAi')}</span>
-                                        <span className="chat-time">
-                                            {new Date(msg.timestamp).toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' })}
-                                        </span>
-                                        {msg.editedAt && <span className="chat-edited-badge">{t('aiSidebar.edited')}</span>}
-                                        <div className="chat-msg-actions">
-                                            <button
-                                                className="btn-mini-icon"
-                                                onClick={() => startEdit(msg)}
-                                            // title="编辑"
-                                            >{t('aiSidebar.btnEdit')}</button>
-                                            {msg.role === 'user' && (
-                                                <button
-                                                    className="btn-mini-icon"
-                                                    onClick={() => handleResend(msg.id)}
-                                                    // title="重新发送"
-                                                    disabled={chatStreaming}
-                                                >{t('aiSidebar.btnResend')}</button>
-                                            )}
-                                            {msg.role === 'assistant' && (
-                                                <button
-                                                    className="btn-mini-icon"
-                                                    onClick={() => onRegenerate?.(msg.id)}
-                                                    // title="重新生成"
-                                                    disabled={chatStreaming}
-                                                >{t('aiSidebar.btnRegenerate')}</button>
-                                            )}
-                                            <button
-                                                className="btn-mini-icon"
-                                                onClick={() => onBranch?.(msg.id)}
-                                            // title="从此创建分支"
-                                            >{t('aiSidebar.btnBranch')}</button>
-                                            <button
-                                                className="btn-mini-icon danger"
-                                                onClick={() => onDeleteMessage?.(msg.id)}
-                                                title={t('aiSidebar.delete')}
-                                            >{t('aiSidebar.clearChat')}</button>
-                                        </div>
-                                    </div>
-
-                                    {/* 思维链折叠显示 */}
-                                    {msg.thinking && (
-                                        <div className="chat-thinking-block">
-                                            <button
-                                                className="chat-thinking-toggle"
-                                                onClick={() => toggleThinking(msg.id)}
-                                            >
-                                                <span className={`thinking-chevron ${expandedThinking.has(msg.id) ? 'open' : ''}`}>▶</span>
-                                                <span>{t('aiSidebar.thinkingChain')}</span>
-                                                {!expandedThinking.has(msg.id) && (
-                                                    <span className="thinking-preview">
-                                                        {msg.thinking.slice(0, 40)}{msg.thinking.length > 40 ? '…' : ''}
-                                                    </span>
-                                                )}
-                                            </button>
-                                            {expandedThinking.has(msg.id) && (
-                                                <div className="chat-thinking-content">
-                                                    {msg.thinking}
-                                                </div>
-                                            )}
-                                        </div>
-                                    )}
-
-                                    {/* 消息内容 / 编辑模式 */}
-                                    {/* 工具调用结果展示（Gemini 内置工具） */}
-                                    {msg.toolCalls && msg.toolCalls.length > 0 && (
-                                        <div className="tool-calls-container">
-                                            {msg.toolCalls.map((tc, idx) => {
-                                                if (tc.type === 'codeExec') return (
-                                                    <div key={idx} className="tool-call-card code-exec">
-                                                        <div className="tool-call-header">💻 {t('aiSidebar.toolCodeExec') || '代码执行'} <span className="tool-lang">{tc.language}</span></div>
-                                                        <pre className="tool-code-block"><code>{tc.code}</code></pre>
-                                                    </div>
-                                                );
-                                                if (tc.type === 'codeResult') return (
-                                                    <div key={idx} className={`tool-call-card code-result ${tc.outcome === 'OUTCOME_OK' ? 'success' : 'error'}`}>
-                                                        <div className="tool-call-header">{tc.outcome === 'OUTCOME_OK' ? '✅' : '❌'} {t('aiSidebar.toolCodeResult') || '执行结果'}</div>
-                                                        <pre className="tool-code-block"><code>{tc.output}</code></pre>
-                                                    </div>
-                                                );
-                                                if (tc.type === 'grounding' && tc.sources?.length > 0) return (
-                                                    <div key={idx} className="tool-call-card grounding">
-                                                        <div className="tool-call-header">🔍 {t('aiSidebar.toolSearchSources') || '搜索来源'}</div>
-                                                        <div className="grounding-sources">
-                                                            {tc.sources.map((src, si) => (
-                                                                <a key={si} className="grounding-chip" href={src.uri} target="_blank" rel="noopener noreferrer" title={src.uri}>
-                                                                    {src.title || src.uri}
-                                                                </a>
-                                                            ))}
-                                                        </div>
-                                                    </div>
-                                                );
-                                                return null;
-                                            })}
-                                        </div>
-                                    )}
-                                    {editingMsgId === msg.id ? (
-                                        <div className="chat-message-editing">
-                                            <textarea
-                                                className="chat-edit-textarea"
-                                                value={editingContent}
-                                                onChange={e => setEditingContent(e.target.value)}
-                                                rows={4}
-                                                autoFocus
-                                            />
-                                            <div className="chat-edit-actions">
-                                                <button className="btn-mini" onClick={cancelEdit}>✕ {t('aiSidebar.cancel')}</button>
-                                                <button className="btn-mini primary" onClick={confirmEdit}>{t('aiSidebar.save')}</button>
-                                            </div>
-                                        </div>
                                     ) : (
-                                        <div className={`chat-bubble-content${isStreaming ? ' streaming' : ''}`}>
-                                            {(() => {
-                                                const { parts, actions } = parseSettingsActions(msg.content || '正在思考…');
-                                                return parts.map((part, pi) => {
-                                                    if (typeof part === 'object' && part._action) {
-                                                        const action = actions[part.index];
-                                                        const actionKey = `${msg.id}-v${msg.activeVariant || 0}-action-${part.index}`;
-                                                        return (
-                                                            <div key={pi} className="settings-action-card">
-                                                                <div
-                                                                    className="settings-action-header"
-                                                                    onClick={() => setExpandedActions(prev => {
-                                                                        const next = new Set(prev);
-                                                                        next.has(actionKey) ? next.delete(actionKey) : next.add(actionKey);
-                                                                        return next;
-                                                                    })}
-                                                                    style={{ cursor: 'pointer' }}
-                                                                >
-                                                                    <span className="settings-action-badge">{t(`aiSidebar.actions.${action.action}`) || action.action}</span>
-                                                                    <span className="settings-action-cat">{t(`aiSidebar.categories.${action.category}`) || action.category || ''}</span>
-                                                                    <span className="settings-action-name">{action.name || action.nodeId || ''}</span>
-                                                                    <span style={{ marginLeft: 'auto', fontSize: '10px', color: 'var(--text-muted)' }}>{expandedActions.has(actionKey) ? '▲...' : '▼...'}</span>
-                                                                </div>
-                                                                {action.content && expandedActions.has(actionKey) && (
-                                                                    <div className="settings-action-preview">
-                                                                        {Object.entries(action.content).map(([k, v]) => (
-                                                                            <div key={k} className="settings-action-field">
-                                                                                <span className="settings-action-field-key">{k}:</span>
-                                                                                <span className="settings-action-field-val">{String(v)}</span>
-                                                                            </div>
-                                                                        ))}
-                                                                    </div>
-                                                                )}
-                                                                <button
-                                                                    className="btn-mini primary settings-action-apply"
-                                                                    onClick={() => onApplySettingsAction?.(action, actionKey)}
-                                                                    disabled={msg._appliedActions?.includes(actionKey)}
-                                                                >
-                                                                    {msg._appliedActions?.includes(actionKey) ? t('aiSidebar.actionsApplied') : t('aiSidebar.actionsApply')}
-                                                                </button>
-                                                            </div>
-                                                        );
-                                                    }
-                                                    return <ChatMarkdown key={pi} content={part} />;
-                                                });
-                                            })()}
-                                        </div>
-                                    )}
-
-                                    {/* 变体导航 < 1/3 > */}
-                                    {hasVariants && !isStreaming && (
-                                        <div className="chat-variant-nav">
-                                            <button
-                                                className="btn-mini-icon"
-                                                onClick={() => onSwitchVariant?.(msg.id, variantIdx - 1)}
-                                                disabled={variantIdx <= 0}
-                                            >◀</button>
-                                            <span className="variant-indicator">{variantIdx + 1} / {variantTotal}</span>
-                                            <button
-                                                className="btn-mini-icon"
-                                                onClick={() => onSwitchVariant?.(msg.id, variantIdx + 1)}
-                                                disabled={variantIdx >= variantTotal - 1}
-                                            >▶</button>
-                                        </div>
-                                    )}
-
-                                    {/* AI 消息：一键插入正文 */}
-                                    {msg.role === 'assistant' && !isStreaming && msg.content && (
-                                        <div style={{ display: 'flex', gap: '6px', padding: '4px 0 2px' }}>
-                                            <button
-                                                className="btn-mini"
-                                                onClick={(e) => {
-                                                    e.stopPropagation();
-                                                    // 提取正文：去掉系统块、markdown标记、编辑点评
-                                                    let text = (msg.content || '')
-                                                        .replace(/(?:```[^\n]*\n)?\[SETTINGS_ACTION\][\s\S]*?\[\\?\/SETTINGS_ACTION\](?:\n```)?/g, '')
-                                                        .replace(/^#{1,6}\s+/gm, '')            // 去掉标题 #
-                                                        .replace(/\*\*(.+?)\*\*/g, '$1')         // **粗体** → 粗体
-                                                        .replace(/\*(.+?)\*/g, '$1')             // *斜体* → 斜体
-                                                        .replace(/`(.+?)`/g, '$1')               // `代码` → 代码
-                                                        .replace(/^[-*]\s+/gm, '')               // 去掉无序列表标记
-                                                        .replace(/^\d+\.\s+/gm, '')              // 去掉有序列表标记
-                                                        .trim();
-                                                    if (text) onInsertText?.(text);
-                                                }}
-                                            >{t('aiSidebar.insertEditor')}</button>
-                                            <button
-                                                className="btn-mini"
-                                                onClick={(e) => {
-                                                    e.stopPropagation();
-                                                    navigator.clipboard.writeText(msg.content || '');
-                                                }}
-                                            >{t('aiSidebar.copy')}</button>
-                                        </div>
-                                    )
-                                    }
-                                </div>
-                            );
-                        })}
-                        <div ref={chatEndRef} />
-                    </div>
-
-                    {/* 模型切换器 + 输入框 */}
-                    <div className="chat-input-area">
-                        <div style={{ display: 'flex', gap: 6, flex: 1 }}>
-                            <textarea
-                                ref={inputRef}
-                                className="chat-input"
-                                placeholder={t('aiSidebar.inputPlaceholder')}
-                                value={inputText}
-                                onChange={e => setInputText(e.target.value)}
-                                onKeyDown={e => {
-                                    if (e.key === 'Enter' && !e.shiftKey) {
-                                        e.preventDefault();
-                                        handleSend();
-                                    }
-                                }}
-                                disabled={chatStreaming}
-                                rows={2}
-                            />
-                            <button
-                                className="chat-send-btn"
-                                onClick={handleSend}
-                                disabled={!inputText.trim() || chatStreaming}
-                            >
-                                {chatStreaming ? '⏳' : '↑'}
-                            </button>
-                        </div>
-                    </div>
-                </div>
-            )
-            }
-
-            {/* ==================== 📋 存档 Tab ==================== */}
-            {
-                activeTab === 'archive' && (
-                    <div className="ai-sidebar-body">
-                        <div className="archive-search-bar">
-                            <input
-                                className="archive-search-input"
-                                placeholder={t('aiSidebar.searchArchive')}
-                                value={archiveSearch}
-                                onChange={e => setArchiveSearch(e.target.value)}
-                            />
-                        </div>
-                        <div className="archive-list">
-                            {filteredArchive.length === 0 && (
-                                <div className="chat-empty">
-                                    <div>{t('aiSidebar.emptyArchiveIcon')}</div>
-                                    <div>{t('aiSidebar.emptyArchiveTitle')}</div>
-                                    <div className="chat-empty-hint">{t('aiSidebar.emptyArchiveHint')}</div>
-                                </div>
-                            )}
-                            {[...filteredArchive].reverse().map(item => (
-                                <div
-                                    key={item.id}
-                                    className={`archive-item ${item.status}`}
-                                    onClick={() => setExpandedArchive(expandedArchive === item.id ? null : item.id)}
-                                >
-                                    <div className="archive-item-header">
-                                        <span className={`archive-status ${item.status}`}>
-                                            {t(`aiSidebar.statuses.${item.status}`) || item.status}
-                                        </span>
-                                        <span className="archive-mode">{t(`aiSidebar.modes.${item.mode}`) || item.mode}</span>
-                                        <span className="archive-time">
-                                            {new Date(item.timestamp).toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' })}
-                                        </span>
-                                    </div>
-                                    <div className="archive-preview">
-                                        {item.text?.slice(0, 60)}…
-                                    </div>
-                                    {expandedArchive === item.id && (
-                                        <div className="archive-expanded">
-                                            <pre className="archive-full-text">{item.text}</pre>
-                                            <div className="archive-actions">
-                                                <button className="btn-mini" onClick={(e) => { e.stopPropagation(); onInsertText?.(item.text); }}>
-                                                    {t('aiSidebar.insertEditor')}
-                                                </button>
-                                                <button className="btn-mini" onClick={(e) => { e.stopPropagation(); navigator.clipboard.writeText(item.text); }}>
-                                                    {t('aiSidebar.copy')}
-                                                </button>
+                                        <>
+                                            <div className="session-item-info">
+                                                <span className="session-item-title">{s.title}</span>
+                                                <span className="session-item-meta">
+                                                    {s.messages?.length || 0} 条 · {new Date(s.updatedAt || s.createdAt).toLocaleDateString('zh-CN')}
+                                                </span>
                                             </div>
-                                        </div>
+                                            <div className="session-item-actions" onClick={e => e.stopPropagation()}>
+                                                <button
+                                                    className="btn-mini-icon"
+                                                    onClick={() => { setRenamingSessionId(s.id); setRenameTitle(s.title); }}
+                                                    title={t('aiSidebar.rename')}
+                                                >✎</button>
+                                                {sessions.length > 1 && (
+                                                    <button
+                                                        className="btn-mini-icon danger"
+                                                        onClick={() => onDeleteSession?.(s.id)}
+                                                        title={t('aiSidebar.delete')}
+                                                    >🗑</button>
+                                                )}
+                                            </div>
+                                        </>
                                     )}
                                 </div>
                             ))}
                         </div>
                     </div>
-                )
-            }
+                )}
 
-            {/* ==================== 📚 参考 Tab ==================== */}
-            {
-                activeTab === 'reference' && (
+                {/* Tab 切换 */}
+                <div className="ai-sidebar-tabs">
+                    {tabs.map(t => (
+                        <button
+                            key={t.key}
+                            className={`ai-sidebar-tab ${activeTab === t.key ? 'active' : ''}`}
+                            onClick={() => setActiveTab(t.key)}
+                        >
+                            {t.label}
+                        </button>
+                    ))}
+                </div>
+
+                {/* ==================== 💬 对话 Tab ==================== */}
+                {activeTab === 'chat' && (
                     <div className="ai-sidebar-body">
-                        {/* Token 预算进度条 */}
-                        <div className="context-budget-bar">
-                            <div className="context-budget-label">
-                                <span>{t('aiSidebar.tokenUsage')}</span>
-                                <span className={isOverBudget ? 'context-over-budget' : ''}>
-                                    {totalSelectedTokens.toLocaleString()} / {(INPUT_TOKEN_BUDGET / 1000).toFixed(0)}k
-                                </span>
-                            </div>
-                            <div className="context-budget-track">
-                                <div
-                                    className={`context-budget-fill ${isOverBudget ? 'over' : ''}`}
-                                    style={{ width: `${Math.min(100, budgetPercent)}%` }}
+                        {/* 对话控制栏 */}
+                        <div className="chat-controls">
+                            <label className="chat-control-item">
+                                <input
+                                    type="checkbox"
+                                    checked={slidingWindow}
+                                    onChange={e => setSlidingWindow(e.target.checked)}
                                 />
+                                <span>{t('aiSidebar.slidingWindow')}</span>
+                                {slidingWindow && (
+                                    <input
+                                        type="number" min="2" max="20"
+                                        value={slidingWindowSize}
+                                        onChange={e => setSlidingWindowSize(Number(e.target.value))}
+                                        className="chat-window-size-input"
+                                    />
+                                )}
+                            </label>
+                            <div className="chat-control-actions">
+                                <button
+                                    className="btn-mini"
+                                    onClick={handleSummarize}
+                                    disabled={chatHistory.filter(m => checkedHistory.has(m.id)).length < 2}
+                                    title={t('aiSidebar.summarizeTitle')}
+                                >
+                                    {t('aiSidebar.summarize')}
+                                </button>
+                                <button className="btn-mini danger" onClick={handleClearChat} title={t('aiSidebar.clearChatTitle')}>
+                                    {t('aiSidebar.clearChat')}
+                                </button>
                             </div>
                         </div>
 
-                        {/* 搜索框 */}
-                        <div className="context-search-bar">
-                            <input
-                                className="context-search-input"
-                                placeholder={t('aiSidebar.searchContext')}
-                                value={contextSearch}
-                                onChange={e => setContextSearch(e.target.value)}
-                            />
-                        </div>
+                        {summaryDraft !== null && (
+                            <div className="summary-editor">
+                                <div className="summary-editor-label">{t('aiSidebar.editSummary')}</div>
+                                <textarea
+                                    className="summary-textarea"
+                                    value={summaryDraft}
+                                    onChange={e => setSummaryDraft(e.target.value)}
+                                    rows={5}
+                                />
+                                <div className="summary-actions">
+                                    <button className="btn-mini" onClick={() => setSummaryDraft(null)}>{t('aiSidebar.cancel')}</button>
+                                    <button className="btn-mini primary" onClick={confirmSummary}>{t('aiSidebar.confirmReplace')}</button>
+                                </div>
+                            </div>
+                        )}
 
-                        {/* 分组列表 */}
-                        <div className="context-groups">
-                            {Object.entries(groupedItems).length === 0 && (
+                        {/* 对话消息列表 */}
+                        <div className="chat-messages" ref={chatContainerRef}>
+                            {chatHistory.length === 0 && (
                                 <div className="chat-empty">
-                                    <div>{t('aiSidebar.emptyContextIcon')}</div>
-                                    <div>{t('aiSidebar.emptyContextTitle')}</div>
-                                    <div className="chat-empty-hint">
-                                        {contextSearch ? t('aiSidebar.emptyContextHint1') : t('aiSidebar.emptyContextHint2')}
-                                    </div>
+                                    <div>{t('aiSidebar.emptyChatIcon')}</div>
+                                    <div>{t('aiSidebar.emptyChatTitle')}</div>
+                                    <div className="chat-empty-hint">{t('aiSidebar.emptyChatHint')}</div>
                                 </div>
                             )}
-                            {Object.entries(groupedItems).map(([groupName, items]) => {
-                                const isCollapsed = collapsedGroups.has(groupName);
-                                const checkedCount = items.filter(it => contextSelection?.has(it.id)).length;
-                                const groupTokens = items
-                                    .filter(it => contextSelection?.has(it.id))
-                                    .reduce((sum, it) => sum + it.tokens, 0);
-                                const allGroupChecked = checkedCount === items.length;
+                            {chatHistory.map(msg => {
+                                const isStreaming = chatStreaming && msg.role === 'assistant' && msg === chatHistory[chatHistory.length - 1];
+                                const hasVariants = msg.variants && msg.variants.length > 1;
+                                const variantIdx = msg.activeVariant ?? 0;
+                                const variantTotal = msg.variants?.length || 1;
 
                                 return (
-                                    <div key={groupName} className="context-group">
-                                        <div
-                                            className="context-group-header"
-                                            onClick={() => toggleCollapse(groupName)}
-                                        >
-                                            <span className="context-collapse-icon">
-                                                {isCollapsed ? '▶' : '▼'}
-                                            </span>
+                                    <div key={msg.id} className={`chat-message ${msg.role}`}>
+                                        <div className="chat-message-header">
                                             <input
                                                 type="checkbox"
-                                                checked={allGroupChecked && items.length > 0}
-                                                ref={el => {
-                                                    if (el) el.indeterminate = checkedCount > 0 && checkedCount < items.length;
-                                                }}
-                                                onChange={(e) => {
-                                                    e.stopPropagation();
-                                                    toggleGroup(groupName);
-                                                }}
-                                                onClick={e => e.stopPropagation()}
-                                                className="context-group-check"
+                                                checked={checkedHistory.has(msg.id)}
+                                                onChange={() => toggleCheck(msg.id)}
+                                                className="chat-check"
+                                            // TODO: Make this tooltip translate string and optional
+                                            // title="勾选以包含在下次请求中" 
                                             />
-                                            <span className="context-group-name">
-                                                {groupName} ({checkedCount}/{items.length})
+                                            <span className="chat-role">{msg.role === 'user' ? t('aiSidebar.roleYou') : msg.isSummary ? t('aiSidebar.roleSummary') : t('aiSidebar.roleAi')}</span>
+                                            <span className="chat-time">
+                                                {new Date(msg.timestamp).toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' })}
                                             </span>
-                                            <span className="context-group-tokens">
-                                                {groupTokens > 0 ? `${groupTokens.toLocaleString()}t` : '—'}
-                                            </span>
+                                            {msg.editedAt && <span className="chat-edited-badge">{t('aiSidebar.edited')}</span>}
+                                            <div className="chat-msg-actions">
+                                                <button
+                                                    className="btn-mini-icon"
+                                                    onClick={() => startEdit(msg)}
+                                                // title="编辑"
+                                                >{t('aiSidebar.btnEdit')}</button>
+                                                {msg.role === 'user' && (
+                                                    <button
+                                                        className="btn-mini-icon"
+                                                        onClick={() => handleResend(msg.id)}
+                                                        // title="重新发送"
+                                                        disabled={chatStreaming}
+                                                    >{t('aiSidebar.btnResend')}</button>
+                                                )}
+                                                {msg.role === 'assistant' && (
+                                                    <button
+                                                        className="btn-mini-icon"
+                                                        onClick={() => onRegenerate?.(msg.id)}
+                                                        // title="重新生成"
+                                                        disabled={chatStreaming}
+                                                    >{t('aiSidebar.btnRegenerate')}</button>
+                                                )}
+                                                {msg.role === 'assistant' && msg._context && (
+                                                    <button
+                                                        className="btn-mini-icon"
+                                                        onClick={() => setViewingContext(msg._context)}
+                                                        title="查看发送给 AI 的上下文"
+                                                    >📋</button>
+                                                )}
+                                                <button
+                                                    className="btn-mini-icon"
+                                                    onClick={() => onBranch?.(msg.id)}
+                                                // title="从此创建分支"
+                                                >{t('aiSidebar.btnBranch')}</button>
+                                                <button
+                                                    className="btn-mini-icon danger"
+                                                    onClick={() => onDeleteMessage?.(msg.id)}
+                                                    title={t('aiSidebar.delete')}
+                                                >{t('aiSidebar.clearChat')}</button>
+                                            </div>
                                         </div>
-                                        {!isCollapsed && (
-                                            <div className="context-group-items">
-                                                {items.map(item => (
-                                                    <label key={item.id} className="context-item">
-                                                        <input
-                                                            type="checkbox"
-                                                            checked={contextSelection?.has(item.id) || false}
-                                                            onChange={() => toggleContextItem(item.id)}
-                                                            className="context-item-check"
-                                                        />
-                                                        <span className="context-item-name" title={item.name}>
-                                                            {item.name}
+
+                                        {/* 思维链折叠显示 */}
+                                        {msg.thinking && (
+                                            <div className="chat-thinking-block">
+                                                <button
+                                                    className="chat-thinking-toggle"
+                                                    onClick={() => toggleThinking(msg.id)}
+                                                >
+                                                    <span className={`thinking-chevron ${expandedThinking.has(msg.id) ? 'open' : ''}`}>▶</span>
+                                                    <span>{t('aiSidebar.thinkingChain')}</span>
+                                                    {!expandedThinking.has(msg.id) && (
+                                                        <span className="thinking-preview">
+                                                            {msg.thinking.slice(0, 40)}{msg.thinking.length > 40 ? '…' : ''}
                                                         </span>
-                                                        <span className="context-item-tokens">
-                                                            {item.tokens > 0 ? `${item.tokens.toLocaleString()}t` : '—'}
-                                                        </span>
-                                                    </label>
-                                                ))}
+                                                    )}
+                                                </button>
+                                                {expandedThinking.has(msg.id) && (
+                                                    <div className="chat-thinking-content">
+                                                        {msg.thinking}
+                                                    </div>
+                                                )}
                                             </div>
                                         )}
+
+                                        {/* 消息内容 / 编辑模式 */}
+                                        {/* 工具调用结果展示（Gemini 内置工具） */}
+                                        {msg.toolCalls && msg.toolCalls.length > 0 && (
+                                            <div className="tool-calls-container">
+                                                {msg.toolCalls.map((tc, idx) => {
+                                                    if (tc.type === 'codeExec') return (
+                                                        <div key={idx} className="tool-call-card code-exec">
+                                                            <div className="tool-call-header">💻 {t('aiSidebar.toolCodeExec') || '代码执行'} <span className="tool-lang">{tc.language}</span></div>
+                                                            <pre className="tool-code-block"><code>{tc.code}</code></pre>
+                                                        </div>
+                                                    );
+                                                    if (tc.type === 'codeResult') return (
+                                                        <div key={idx} className={`tool-call-card code-result ${tc.outcome === 'OUTCOME_OK' ? 'success' : 'error'}`}>
+                                                            <div className="tool-call-header">{tc.outcome === 'OUTCOME_OK' ? '✅' : '❌'} {t('aiSidebar.toolCodeResult') || '执行结果'}</div>
+                                                            <pre className="tool-code-block"><code>{tc.output}</code></pre>
+                                                        </div>
+                                                    );
+                                                    if (tc.type === 'grounding' && tc.sources?.length > 0) return (
+                                                        <div key={idx} className="tool-call-card grounding">
+                                                            <div className="tool-call-header">🔍 {t('aiSidebar.toolSearchSources') || '搜索来源'}</div>
+                                                            <div className="grounding-sources">
+                                                                {tc.sources.map((src, si) => (
+                                                                    <a key={si} className="grounding-chip" href={src.uri} target="_blank" rel="noopener noreferrer" title={src.uri}>
+                                                                        {src.title || src.uri}
+                                                                    </a>
+                                                                ))}
+                                                            </div>
+                                                        </div>
+                                                    );
+                                                    return null;
+                                                })}
+                                            </div>
+                                        )}
+                                        {editingMsgId === msg.id ? (
+                                            <div className="chat-message-editing">
+                                                <textarea
+                                                    className="chat-edit-textarea"
+                                                    value={editingContent}
+                                                    onChange={e => setEditingContent(e.target.value)}
+                                                    rows={4}
+                                                    autoFocus
+                                                />
+                                                <div className="chat-edit-actions">
+                                                    <button className="btn-mini" onClick={cancelEdit}>✕ {t('aiSidebar.cancel')}</button>
+                                                    <button className="btn-mini primary" onClick={confirmEdit}>{t('aiSidebar.save')}</button>
+                                                </div>
+                                            </div>
+                                        ) : (
+                                            <div className={`chat-bubble-content${isStreaming ? ' streaming' : ''}`}>
+                                                {(() => {
+                                                    const { parts, actions } = parseSettingsActions(msg.content || '正在思考…');
+                                                    return parts.map((part, pi) => {
+                                                        if (typeof part === 'object' && part._action) {
+                                                            const action = actions[part.index];
+                                                            const actionKey = `${msg.id}-v${msg.activeVariant || 0}-action-${part.index}`;
+                                                            return (
+                                                                <div key={pi} className="settings-action-card">
+                                                                    <div
+                                                                        className="settings-action-header"
+                                                                        onClick={() => setExpandedActions(prev => {
+                                                                            const next = new Set(prev);
+                                                                            next.has(actionKey) ? next.delete(actionKey) : next.add(actionKey);
+                                                                            return next;
+                                                                        })}
+                                                                        style={{ cursor: 'pointer' }}
+                                                                    >
+                                                                        <span className="settings-action-badge">{t(`aiSidebar.actions.${action.action}`) || action.action}</span>
+                                                                        <span className="settings-action-cat">{t(`aiSidebar.categories.${action.category}`) || action.category || ''}</span>
+                                                                        <span className="settings-action-name">{action.name || action.nodeId || ''}</span>
+                                                                        <span style={{ marginLeft: 'auto', fontSize: '10px', color: 'var(--text-muted)' }}>{expandedActions.has(actionKey) ? '▲...' : '▼...'}</span>
+                                                                    </div>
+                                                                    {action.content && expandedActions.has(actionKey) && (
+                                                                        <div className="settings-action-preview">
+                                                                            {Object.entries(action.content).map(([k, v]) => (
+                                                                                <div key={k} className="settings-action-field">
+                                                                                    <span className="settings-action-field-key">{k}:</span>
+                                                                                    <span className="settings-action-field-val">{String(v)}</span>
+                                                                                </div>
+                                                                            ))}
+                                                                        </div>
+                                                                    )}
+                                                                    <button
+                                                                        className="btn-mini primary settings-action-apply"
+                                                                        onClick={() => onApplySettingsAction?.(action, actionKey)}
+                                                                        disabled={msg._appliedActions?.includes(actionKey)}
+                                                                    >
+                                                                        {msg._appliedActions?.includes(actionKey) ? t('aiSidebar.actionsApplied') : t('aiSidebar.actionsApply')}
+                                                                    </button>
+                                                                </div>
+                                                            );
+                                                        }
+                                                        return <ChatMarkdown key={pi} content={part} />;
+                                                    });
+                                                })()}
+                                            </div>
+                                        )}
+
+                                        {/* 变体导航 < 1/3 > */}
+                                        {hasVariants && !isStreaming && (
+                                            <div className="chat-variant-nav">
+                                                <button
+                                                    className="btn-mini-icon"
+                                                    onClick={() => onSwitchVariant?.(msg.id, variantIdx - 1)}
+                                                    disabled={variantIdx <= 0}
+                                                >◀</button>
+                                                <span className="variant-indicator">{variantIdx + 1} / {variantTotal}</span>
+                                                <button
+                                                    className="btn-mini-icon"
+                                                    onClick={() => onSwitchVariant?.(msg.id, variantIdx + 1)}
+                                                    disabled={variantIdx >= variantTotal - 1}
+                                                >▶</button>
+                                            </div>
+                                        )}
+
+                                        {/* AI 消息：一键插入正文 */}
+                                        {msg.role === 'assistant' && !isStreaming && msg.content && (
+                                            <div style={{ display: 'flex', gap: '6px', padding: '4px 0 2px' }}>
+                                                <button
+                                                    className="btn-mini"
+                                                    onClick={(e) => {
+                                                        e.stopPropagation();
+                                                        // 提取正文：去掉系统块、markdown标记、编辑点评
+                                                        let text = (msg.content || '')
+                                                            .replace(/(?:```[^\n]*\n)?\[SETTINGS_ACTION\][\s\S]*?\[\\?\/SETTINGS_ACTION\](?:\n```)?/g, '')
+                                                            .replace(/^#{1,6}\s+/gm, '')            // 去掉标题 #
+                                                            .replace(/\*\*(.+?)\*\*/g, '$1')         // **粗体** → 粗体
+                                                            .replace(/\*(.+?)\*/g, '$1')             // *斜体* → 斜体
+                                                            .replace(/`(.+?)`/g, '$1')               // `代码` → 代码
+                                                            .replace(/^[-*]\s+/gm, '')               // 去掉无序列表标记
+                                                            .replace(/^\d+\.\s+/gm, '')              // 去掉有序列表标记
+                                                            .trim();
+                                                        if (text) onInsertText?.(text);
+                                                    }}
+                                                >{t('aiSidebar.insertEditor')}</button>
+                                                <button
+                                                    className="btn-mini"
+                                                    onClick={(e) => {
+                                                        e.stopPropagation();
+                                                        navigator.clipboard.writeText(msg.content || '');
+                                                    }}
+                                                >{t('aiSidebar.copy')}</button>
+                                            </div>
+                                        )
+                                        }
                                     </div>
                                 );
                             })}
+                            <div ref={chatEndRef} />
                         </div>
 
-                        {/* 批量操作 */}
-                        <div className="context-actions">
-                            <button className="btn-mini" onClick={selectAll}>{t('aiSidebar.selectAll')}</button>
-                            <button className="btn-mini" onClick={selectNone}>{t('aiSidebar.selectNone')}</button>
-                            <button className="btn-mini" onClick={resetSelection}>{t('aiSidebar.reset')}</button>
-                            <button className="btn-mini" onClick={onOpenSettings}>{t('aiSidebar.settings')}</button>
+                        {/* 模型切换器 + 输入框 */}
+                        <div className="chat-input-area">
+                            <div style={{ display: 'flex', gap: 6, flex: 1 }}>
+                                <textarea
+                                    ref={inputRef}
+                                    className="chat-input"
+                                    placeholder={t('aiSidebar.inputPlaceholder')}
+                                    value={inputText}
+                                    onChange={e => setInputText(e.target.value)}
+                                    onKeyDown={e => {
+                                        if (e.key === 'Enter' && !e.shiftKey) {
+                                            e.preventDefault();
+                                            handleSend();
+                                        }
+                                    }}
+                                    disabled={chatStreaming}
+                                    rows={2}
+                                />
+                                {chatStreaming ? (
+                                    <button
+                                        className="chat-send-btn chat-stop-btn"
+                                        onClick={handleStop}
+                                        title="终止生成"
+                                    >
+                                        ■
+                                    </button>
+                                ) : (
+                                    <button
+                                        className="chat-send-btn"
+                                        onClick={handleSend}
+                                        disabled={!inputText.trim()}
+                                    >
+                                        ↑
+                                    </button>
+                                )}
+                            </div>
                         </div>
                     </div>
                 )
-            }
+                }
 
-            {/* ==================== 📊 统计 Tab ==================== */}
-            {
-                activeTab === 'stats' && (
-                    <div className="ai-sidebar-body">
-                        <div className="token-stats-panel">
-                            {tokenStats.totalRequests === 0 ? (
-                                <div className="chat-empty">
-                                    <div>📊</div>
-                                    <div>{t('aiSidebar.statsNoData')}</div>
-                                    <div className="chat-empty-hint">{t('aiSidebar.statsNoDataHint')}</div>
+                {/* ==================== 📋 存档 Tab ==================== */}
+                {
+                    activeTab === 'archive' && (
+                        <div className="ai-sidebar-body">
+                            <div className="archive-search-bar">
+                                <input
+                                    className="archive-search-input"
+                                    placeholder={t('aiSidebar.searchArchive')}
+                                    value={archiveSearch}
+                                    onChange={e => setArchiveSearch(e.target.value)}
+                                />
+                            </div>
+                            <div className="archive-list">
+                                {filteredArchive.length === 0 && (
+                                    <div className="chat-empty">
+                                        <div>{t('aiSidebar.emptyArchiveIcon')}</div>
+                                        <div>{t('aiSidebar.emptyArchiveTitle')}</div>
+                                        <div className="chat-empty-hint">{t('aiSidebar.emptyArchiveHint')}</div>
+                                    </div>
+                                )}
+                                {[...filteredArchive].reverse().map(item => (
+                                    <div
+                                        key={item.id}
+                                        className={`archive-item ${item.status}`}
+                                        onClick={() => setExpandedArchive(expandedArchive === item.id ? null : item.id)}
+                                    >
+                                        <div className="archive-item-header">
+                                            <span className={`archive-status ${item.status}`}>
+                                                {t(`aiSidebar.statuses.${item.status}`) || item.status}
+                                            </span>
+                                            <span className="archive-mode">{t(`aiSidebar.modes.${item.mode}`) || item.mode}</span>
+                                            <span className="archive-time">
+                                                {new Date(item.timestamp).toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' })}
+                                            </span>
+                                        </div>
+                                        <div className="archive-preview">
+                                            {item.text?.slice(0, 60)}…
+                                        </div>
+                                        {expandedArchive === item.id && (
+                                            <div className="archive-expanded">
+                                                <pre className="archive-full-text">{item.text}</pre>
+                                                <div className="archive-actions">
+                                                    <button className="btn-mini" onClick={(e) => { e.stopPropagation(); onInsertText?.(item.text); }}>
+                                                        {t('aiSidebar.insertEditor')}
+                                                    </button>
+                                                    <button className="btn-mini" onClick={(e) => { e.stopPropagation(); navigator.clipboard.writeText(item.text); }}>
+                                                        {t('aiSidebar.copy')}
+                                                    </button>
+                                                </div>
+                                            </div>
+                                        )}
+                                    </div>
+                                ))}
+                            </div>
+                        </div>
+                    )
+                }
+
+                {/* ==================== 📚 参考 Tab ==================== */}
+                {
+                    activeTab === 'reference' && (
+                        <div className="ai-sidebar-body">
+                            {/* Token 预算进度条 */}
+                            <div className="context-budget-bar">
+                                <div className="context-budget-label">
+                                    <span>{t('aiSidebar.tokenUsage')}</span>
+                                    <span className={isOverBudget ? 'context-over-budget' : ''}>
+                                        {totalSelectedTokens.toLocaleString()} / {(INPUT_TOKEN_BUDGET / 1000).toFixed(0)}k
+                                    </span>
                                 </div>
-                            ) : (
-                                <>
-                                    {/* 汇总卡片 */}
-                                    <div className="stats-grid">
-                                        <div className="stats-card">
-                                            <div className="stats-card-value">{tokenStats.totalTokens.toLocaleString()}</div>
-                                            <div className="stats-card-label">{t('aiSidebar.statsTotalTokens')}</div>
-                                        </div>
-                                        <div className="stats-card">
-                                            <div className="stats-card-value">{tokenStats.totalPromptTokens.toLocaleString()}</div>
-                                            <div className="stats-card-label">{t('aiSidebar.statsTotalInput')}</div>
-                                        </div>
-                                        <div className="stats-card">
-                                            <div className="stats-card-value">{tokenStats.totalCompletionTokens.toLocaleString()}</div>
-                                            <div className="stats-card-label">{t('aiSidebar.statsTotalOutput')}</div>
-                                        </div>
-                                        <div className="stats-card">
-                                            <div className="stats-card-value">{tokenStats.totalRequests}</div>
-                                            <div className="stats-card-label">{t('aiSidebar.statsTotalRequests')}</div>
-                                        </div>
-                                        <div className="stats-card">
-                                            <div className="stats-card-value">{tokenStats.trackedDays}</div>
-                                            <div className="stats-card-label">{t('aiSidebar.statsTrackedDays')}</div>
+                                <div className="context-budget-track">
+                                    <div
+                                        className={`context-budget-fill ${isOverBudget ? 'over' : ''}`}
+                                        style={{ width: `${Math.min(100, budgetPercent)}%` }}
+                                    />
+                                </div>
+                            </div>
+
+                            {/* 搜索框 */}
+                            <div className="context-search-bar">
+                                <input
+                                    className="context-search-input"
+                                    placeholder={t('aiSidebar.searchContext')}
+                                    value={contextSearch}
+                                    onChange={e => setContextSearch(e.target.value)}
+                                />
+                            </div>
+
+                            {/* 分组列表 */}
+                            <div className="context-groups">
+                                {Object.entries(groupedItems).length === 0 && (
+                                    <div className="chat-empty">
+                                        <div>{t('aiSidebar.emptyContextIcon')}</div>
+                                        <div>{t('aiSidebar.emptyContextTitle')}</div>
+                                        <div className="chat-empty-hint">
+                                            {contextSearch ? t('aiSidebar.emptyContextHint1') : t('aiSidebar.emptyContextHint2')}
                                         </div>
                                     </div>
+                                )}
+                                {Object.entries(groupedItems).map(([groupName, items]) => {
+                                    const isCollapsed = collapsedGroups.has(groupName);
+                                    const checkedCount = items.filter(it => contextSelection?.has(it.id)).length;
+                                    const groupTokens = items
+                                        .filter(it => contextSelection?.has(it.id))
+                                        .reduce((sum, it) => sum + it.tokens, 0);
+                                    const allGroupChecked = checkedCount === items.length;
 
-                                    {/* 消耗速率 */}
-                                    <div className="stats-section">
-                                        <div className="stats-section-title">{t('aiSidebar.statsRates')}</div>
-                                        <div className="stats-section-hint">{t('aiSidebar.statsRatesHint')}</div>
-                                        <table className="projection-table">
-                                            <thead>
-                                                <tr>
-                                                    <th>{t('aiSidebar.statsRateMetric')}</th>
-                                                    <th>{t('aiSidebar.statsRateDesc')}</th>
-                                                    <th>{t('aiSidebar.statsRateValue')}</th>
-                                                </tr>
-                                            </thead>
-                                            <tbody>
-                                                {[
-                                                    ['TPS', tokenStats.rates.tps, t('aiSidebar.statsRateTPS')],
-                                                    ['TPM', tokenStats.rates.tpm, t('aiSidebar.statsRateTPM')],
-                                                    ['TPH', tokenStats.rates.tph, t('aiSidebar.statsRateTPH')],
-                                                    ['TPD', tokenStats.rates.tpd, t('aiSidebar.statsRateTPD')],
-                                                    ['RPM', tokenStats.rates.rpm, t('aiSidebar.statsRateRPM')],
-                                                    ['RPH', tokenStats.rates.rph, t('aiSidebar.statsRateRPH')],
-                                                    ['RPD', tokenStats.rates.rpd, t('aiSidebar.statsRateRPD')],
-                                                ].map(([key, value, label]) => (
-                                                    <tr key={key} title={label}>
-                                                        <td><strong>{key}</strong></td>
-                                                        <td className="stats-rate-desc">{label}</td>
-                                                        <td>{value < 1 ? value.toFixed(2) : value < 10 ? value.toFixed(1) : Math.round(value).toLocaleString()}</td>
-                                                    </tr>
-                                                ))}
-                                            </tbody>
-                                        </table>
-                                    </div>
-
-                                    {/* 近期请求速度 */}
-                                    {tokenStats.recentSpeeds.length > 0 && (
-                                        <div className="stats-section">
-                                            <div className="stats-section-title">{t('aiSidebar.statsRecentSpeeds')}</div>
-                                            <div className="speed-chart">
-                                                {(() => {
-                                                    const maxSpeed = Math.max(...tokenStats.recentSpeeds.map(s => s.speed));
-                                                    return tokenStats.recentSpeeds.map((s, i) => (
-                                                        <div key={i} className="speed-bar-wrapper" title={`${s.speed.toFixed(1)} tokens/s · ${s.tokens} tokens`}>
-                                                            <div
-                                                                className="speed-bar"
-                                                                style={{ height: `${Math.max(4, (s.speed / maxSpeed) * 100)}%` }}
+                                    return (
+                                        <div key={groupName} className="context-group">
+                                            <div
+                                                className="context-group-header"
+                                                onClick={() => toggleCollapse(groupName)}
+                                            >
+                                                <span className="context-collapse-icon">
+                                                    {isCollapsed ? '▶' : '▼'}
+                                                </span>
+                                                <input
+                                                    type="checkbox"
+                                                    checked={allGroupChecked && items.length > 0}
+                                                    ref={el => {
+                                                        if (el) el.indeterminate = checkedCount > 0 && checkedCount < items.length;
+                                                    }}
+                                                    onChange={(e) => {
+                                                        e.stopPropagation();
+                                                        toggleGroup(groupName);
+                                                    }}
+                                                    onClick={e => e.stopPropagation()}
+                                                    className="context-group-check"
+                                                />
+                                                <span className="context-group-name">
+                                                    {groupName} ({checkedCount}/{items.length})
+                                                </span>
+                                                <span className="context-group-tokens">
+                                                    {groupTokens > 0 ? `${groupTokens.toLocaleString()}t` : '—'}
+                                                </span>
+                                            </div>
+                                            {!isCollapsed && (
+                                                <div className="context-group-items">
+                                                    {items.map(item => (
+                                                        <label key={item.id} className="context-item">
+                                                            <input
+                                                                type="checkbox"
+                                                                checked={contextSelection?.has(item.id) || false}
+                                                                onChange={() => toggleContextItem(item.id)}
+                                                                className="context-item-check"
                                                             />
-                                                            <span className="speed-bar-label">{s.speed.toFixed(0)}</span>
-                                                        </div>
-                                                    ));
-                                                })()}
+                                                            <span className="context-item-name" title={item.name}>
+                                                                {item.name}
+                                                            </span>
+                                                            <span className="context-item-tokens">
+                                                                {item.tokens > 0 ? `${item.tokens.toLocaleString()}t` : '—'}
+                                                            </span>
+                                                        </label>
+                                                    ))}
+                                                </div>
+                                            )}
+                                        </div>
+                                    );
+                                })}
+                            </div>
+
+                            {/* 批量操作 */}
+                            <div className="context-actions">
+                                <button className="btn-mini" onClick={selectAll}>{t('aiSidebar.selectAll')}</button>
+                                <button className="btn-mini" onClick={selectNone}>{t('aiSidebar.selectNone')}</button>
+                                <button className="btn-mini" onClick={resetSelection}>{t('aiSidebar.reset')}</button>
+                                <button className="btn-mini" onClick={onOpenSettings}>{t('aiSidebar.settings')}</button>
+                            </div>
+                        </div>
+                    )
+                }
+
+                {/* ==================== 📊 统计 Tab ==================== */}
+                {
+                    activeTab === 'stats' && (
+                        <div className="ai-sidebar-body">
+                            <div className="token-stats-panel">
+                                {tokenStats.totalRequests === 0 ? (
+                                    <div className="chat-empty">
+                                        <div>📊</div>
+                                        <div>{t('aiSidebar.statsNoData')}</div>
+                                        <div className="chat-empty-hint">{t('aiSidebar.statsNoDataHint')}</div>
+                                    </div>
+                                ) : (
+                                    <>
+                                        {/* 汇总卡片 */}
+                                        <div className="stats-grid">
+                                            <div className="stats-card">
+                                                <div className="stats-card-value">{tokenStats.totalTokens.toLocaleString()}</div>
+                                                <div className="stats-card-label">{t('aiSidebar.statsTotalTokens')}</div>
+                                            </div>
+                                            <div className="stats-card">
+                                                <div className="stats-card-value">{tokenStats.totalPromptTokens.toLocaleString()}</div>
+                                                <div className="stats-card-label">{t('aiSidebar.statsTotalInput')}</div>
+                                            </div>
+                                            <div className="stats-card">
+                                                <div className="stats-card-value">{tokenStats.totalCompletionTokens.toLocaleString()}</div>
+                                                <div className="stats-card-label">{t('aiSidebar.statsTotalOutput')}</div>
+                                            </div>
+                                            <div className="stats-card">
+                                                <div className="stats-card-value">{tokenStats.totalRequests}</div>
+                                                <div className="stats-card-label">{t('aiSidebar.statsTotalRequests')}</div>
+                                            </div>
+                                            <div className="stats-card">
+                                                <div className="stats-card-value">{tokenStats.trackedDays}</div>
+                                                <div className="stats-card-label">{t('aiSidebar.statsTrackedDays')}</div>
                                             </div>
                                         </div>
-                                    )}
 
-                                    {/* 消耗预估 */}
-                                    <div className="stats-section">
-                                        <div className="stats-section-title">{t('aiSidebar.statsProjections')}</div>
-                                        <div className="stats-section-hint">{t('aiSidebar.statsProjectionsHint')}</div>
-                                        <table className="projection-table">
-                                            <thead>
-                                                <tr>
-                                                    <th>{t('aiSidebar.statsPeriod')}</th>
-                                                    <th>{t('aiSidebar.statsTokens')}</th>
-                                                    <th>{t('aiSidebar.statsRequests')}</th>
-                                                </tr>
-                                            </thead>
-                                            <tbody>
-                                                {[
-                                                    ['statsPeriodDay', tokenStats.projections.perDay],
-                                                    ['statsPeriodWeek', tokenStats.projections.perWeek],
-                                                    ['statsPeriodMonth', tokenStats.projections.perMonth],
-                                                    ['statsPeriodQuarter', tokenStats.projections.perQuarter],
-                                                    ['statsPeriodYear', tokenStats.projections.perYear],
-                                                ].map(([key, data]) => (
-                                                    <tr key={key}>
-                                                        <td>{t(`aiSidebar.${key}`)}</td>
-                                                        <td>{data.tokens.toLocaleString()}</td>
-                                                        <td>{data.requests}</td>
-                                                    </tr>
-                                                ))}
-                                            </tbody>
-                                        </table>
-                                    </div>
-
-                                    {/* 渠道/模型分类统计 */}
-                                    {tokenStats.modelBreakdown.length > 0 && (
+                                        {/* 消耗速率 */}
                                         <div className="stats-section">
-                                            <div className="stats-section-title">{t('aiSidebar.statsModelBreakdown')}</div>
-                                            <div className="stats-section-hint">{t('aiSidebar.statsModelBreakdownHint')}</div>
-                                            {tokenStats.modelBreakdown.map((m, idx) => {
-                                                const bgGradient = getProviderColor(m.provider, m.model);
-                                                return (
-                                                    <div key={idx} className="model-info-card">
-                                                        <div className="model-info-header">
-                                                            <div className="model-info-title">
-                                                                <span className="model-info-badge" style={{ background: bgGradient }}>
-                                                                    <ProviderLogo provider={m.provider} model={m.model} className="provider-logo-svg" />
-                                                                    {m.provider}
-                                                                </span>
-                                                                <span className="model-info-name" title={m.model}>{m.model}</span>
-                                                            </div>
-                                                            <div className="model-info-percent">
-                                                                {Math.round(m.tokenPercent)}<span>%</span>
-                                                            </div>
-                                                        </div>
-
-                                                        <div className="model-info-bar-track">
-                                                            <div className="model-info-bar-fill" style={{ width: `${m.tokenPercent}%`, background: bgGradient }} />
-                                                        </div>
-
-                                                        <div className="model-info-stats">
-                                                            <div className="info-stat-group">
-                                                                <span className="info-stat-value">{m.tokens.toLocaleString()}</span>
-                                                                <span className="info-stat-label">Tokens</span>
-                                                            </div>
-                                                            <div className="info-stat-group">
-                                                                <span className="info-stat-value">{m.requests}</span>
-                                                                <span className="info-stat-label">{t('aiSidebar.statsRequests')}</span>
-                                                            </div>
-                                                            <div className="info-stat-group" title={`${t('aiSidebar.statsTotalInput')}: ${m.promptTokens} / ${t('aiSidebar.statsTotalOutput')}: ${m.completionTokens}`}>
-                                                                <span className="info-stat-value">
-                                                                    {m.promptTokens > 1000 ? (m.promptTokens / 1000).toFixed(1) + 'k' : m.promptTokens} / {m.completionTokens > 1000 ? (m.completionTokens / 1000).toFixed(1) + 'k' : m.completionTokens}
-                                                                </span>
-                                                                <span className="info-stat-label">In / Out</span>
-                                                            </div>
-                                                            {m.avgSpeed > 0 && (
-                                                                <div className="info-stat-group">
-                                                                    <span className="info-stat-value">{m.avgSpeed.toFixed(1)}</span>
-                                                                    <span className="info-stat-label">t/s</span>
-                                                                </div>
-                                                            )}
-                                                        </div>
-                                                    </div>
-                                                );
-                                            })}
+                                            <div className="stats-section-title">{t('aiSidebar.statsRates')}</div>
+                                            <div className="stats-section-hint">{t('aiSidebar.statsRatesHint')}</div>
+                                            <table className="projection-table">
+                                                <thead>
+                                                    <tr>
+                                                        <th>{t('aiSidebar.statsRateMetric')}</th>
+                                                        <th>{t('aiSidebar.statsRateDesc')}</th>
+                                                        <th>{t('aiSidebar.statsRateValue')}</th>
+                                                    </tr>
+                                                </thead>
+                                                <tbody>
+                                                    {[
+                                                        ['TPS', tokenStats.rates.tps, t('aiSidebar.statsRateTPS')],
+                                                        ['TPM', tokenStats.rates.tpm, t('aiSidebar.statsRateTPM')],
+                                                        ['TPH', tokenStats.rates.tph, t('aiSidebar.statsRateTPH')],
+                                                        ['TPD', tokenStats.rates.tpd, t('aiSidebar.statsRateTPD')],
+                                                        ['RPM', tokenStats.rates.rpm, t('aiSidebar.statsRateRPM')],
+                                                        ['RPH', tokenStats.rates.rph, t('aiSidebar.statsRateRPH')],
+                                                        ['RPD', tokenStats.rates.rpd, t('aiSidebar.statsRateRPD')],
+                                                    ].map(([key, value, label]) => (
+                                                        <tr key={key} title={label}>
+                                                            <td><strong>{key}</strong></td>
+                                                            <td className="stats-rate-desc">{label}</td>
+                                                            <td>{value < 1 ? value.toFixed(2) : value < 10 ? value.toFixed(1) : Math.round(value).toLocaleString()}</td>
+                                                        </tr>
+                                                    ))}
+                                                </tbody>
+                                            </table>
                                         </div>
-                                    )}
 
-                                    {/* 清空按钮 */}
-                                    <div className="stats-actions">
-                                        <button
-                                            className="btn-mini danger"
-                                            onClick={() => {
-                                                if (confirm(t('aiSidebar.statsClearConfirm'))) {
-                                                    clearTokenStats();
-                                                    setStatsVersion(v => v + 1);
-                                                }
-                                            }}
-                                        >
-                                            {t('aiSidebar.statsClearBtn')}
-                                        </button>
-                                    </div>
-                                </>
-                            )}
+                                        {/* 近期请求速度 */}
+                                        {tokenStats.recentSpeeds.length > 0 && (
+                                            <div className="stats-section">
+                                                <div className="stats-section-title">{t('aiSidebar.statsRecentSpeeds')}</div>
+                                                <div className="speed-chart">
+                                                    {(() => {
+                                                        const maxSpeed = Math.max(...tokenStats.recentSpeeds.map(s => s.speed));
+                                                        return tokenStats.recentSpeeds.map((s, i) => (
+                                                            <div key={i} className="speed-bar-wrapper" title={`${s.speed.toFixed(1)} tokens/s · ${s.tokens} tokens`}>
+                                                                <div
+                                                                    className="speed-bar"
+                                                                    style={{ height: `${Math.max(4, (s.speed / maxSpeed) * 100)}%` }}
+                                                                />
+                                                                <span className="speed-bar-label">{s.speed.toFixed(0)}</span>
+                                                            </div>
+                                                        ));
+                                                    })()}
+                                                </div>
+                                            </div>
+                                        )}
+
+                                        {/* 消耗预估 */}
+                                        <div className="stats-section">
+                                            <div className="stats-section-title">{t('aiSidebar.statsProjections')}</div>
+                                            <div className="stats-section-hint">{t('aiSidebar.statsProjectionsHint')}</div>
+                                            <table className="projection-table">
+                                                <thead>
+                                                    <tr>
+                                                        <th>{t('aiSidebar.statsPeriod')}</th>
+                                                        <th>{t('aiSidebar.statsTokens')}</th>
+                                                        <th>{t('aiSidebar.statsRequests')}</th>
+                                                    </tr>
+                                                </thead>
+                                                <tbody>
+                                                    {[
+                                                        ['statsPeriodDay', tokenStats.projections.perDay],
+                                                        ['statsPeriodWeek', tokenStats.projections.perWeek],
+                                                        ['statsPeriodMonth', tokenStats.projections.perMonth],
+                                                        ['statsPeriodQuarter', tokenStats.projections.perQuarter],
+                                                        ['statsPeriodYear', tokenStats.projections.perYear],
+                                                    ].map(([key, data]) => (
+                                                        <tr key={key}>
+                                                            <td>{t(`aiSidebar.${key}`)}</td>
+                                                            <td>{data.tokens.toLocaleString()}</td>
+                                                            <td>{data.requests}</td>
+                                                        </tr>
+                                                    ))}
+                                                </tbody>
+                                            </table>
+                                        </div>
+
+                                        {/* 渠道/模型分类统计 */}
+                                        {tokenStats.modelBreakdown.length > 0 && (
+                                            <div className="stats-section">
+                                                <div className="stats-section-title">{t('aiSidebar.statsModelBreakdown')}</div>
+                                                <div className="stats-section-hint">{t('aiSidebar.statsModelBreakdownHint')}</div>
+                                                {tokenStats.modelBreakdown.map((m, idx) => {
+                                                    const bgGradient = getProviderColor(m.provider, m.model);
+                                                    return (
+                                                        <div key={idx} className="model-info-card">
+                                                            <div className="model-info-header">
+                                                                <div className="model-info-title">
+                                                                    <span className="model-info-badge" style={{ background: bgGradient }}>
+                                                                        <ProviderLogo provider={m.provider} model={m.model} className="provider-logo-svg" />
+                                                                        {m.provider}
+                                                                    </span>
+                                                                    <span className="model-info-name" title={m.model}>{m.model}</span>
+                                                                </div>
+                                                                <div className="model-info-percent">
+                                                                    {Math.round(m.tokenPercent)}<span>%</span>
+                                                                </div>
+                                                            </div>
+
+                                                            <div className="model-info-bar-track">
+                                                                <div className="model-info-bar-fill" style={{ width: `${m.tokenPercent}%`, background: bgGradient }} />
+                                                            </div>
+
+                                                            <div className="model-info-stats">
+                                                                <div className="info-stat-group">
+                                                                    <span className="info-stat-value">{m.tokens.toLocaleString()}</span>
+                                                                    <span className="info-stat-label">Tokens</span>
+                                                                </div>
+                                                                <div className="info-stat-group">
+                                                                    <span className="info-stat-value">{m.requests}</span>
+                                                                    <span className="info-stat-label">{t('aiSidebar.statsRequests')}</span>
+                                                                </div>
+                                                                <div className="info-stat-group" title={`${t('aiSidebar.statsTotalInput')}: ${m.promptTokens} / ${t('aiSidebar.statsTotalOutput')}: ${m.completionTokens}`}>
+                                                                    <span className="info-stat-value">
+                                                                        {m.promptTokens > 1000 ? (m.promptTokens / 1000).toFixed(1) + 'k' : m.promptTokens} / {m.completionTokens > 1000 ? (m.completionTokens / 1000).toFixed(1) + 'k' : m.completionTokens}
+                                                                    </span>
+                                                                    <span className="info-stat-label">In / Out</span>
+                                                                </div>
+                                                                {m.avgSpeed > 0 && (
+                                                                    <div className="info-stat-group">
+                                                                        <span className="info-stat-value">{m.avgSpeed.toFixed(1)}</span>
+                                                                        <span className="info-stat-label">t/s</span>
+                                                                    </div>
+                                                                )}
+                                                            </div>
+                                                        </div>
+                                                    );
+                                                })}
+                                            </div>
+                                        )}
+
+                                        {/* 清空按钮 */}
+                                        <div className="stats-actions">
+                                            <button
+                                                className="btn-mini danger"
+                                                onClick={() => {
+                                                    if (confirm(t('aiSidebar.statsClearConfirm'))) {
+                                                        clearTokenStats();
+                                                        setStatsVersion(v => v + 1);
+                                                    }
+                                                }}
+                                            >
+                                                {t('aiSidebar.statsClearBtn')}
+                                            </button>
+                                        </div>
+                                    </>
+                                )}
+                            </div>
+                        </div>
+                    )
+                }
+            </div >
+
+            {/* 上下文查看器弹窗 */}
+            {
+                viewingContext && (
+                    <div style={{
+                        position: 'fixed', inset: 0, zIndex: 9999,
+                        background: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center',
+                    }} onClick={() => setViewingContext(null)}>
+                        <div style={{
+                            background: 'var(--bg-primary)', borderRadius: 'var(--radius-lg)',
+                            width: '90%', maxWidth: 600, maxHeight: '80vh', overflow: 'auto',
+                            padding: '20px 24px', boxShadow: 'var(--shadow-xl)',
+                        }} onClick={e => e.stopPropagation()}>
+                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
+                                <h3 style={{ margin: 0, fontSize: 15, color: 'var(--text-primary)' }}>📋 发送给 AI 的上下文</h3>
+                                <button onClick={() => setViewingContext(null)} style={{
+                                    background: 'none', border: 'none', fontSize: 18, cursor: 'pointer', color: 'var(--text-muted)',
+                                }}>✕</button>
+                            </div>
+                            {Object.entries(viewingContext).map(([key, value]) => (
+                                <details key={key} style={{ marginBottom: 10 }}>
+                                    <summary style={{
+                                        cursor: 'pointer', padding: '8px 10px', fontSize: 13, fontWeight: 500,
+                                        background: 'var(--bg-secondary)', borderRadius: 'var(--radius-sm)',
+                                        color: 'var(--text-secondary)', userSelect: 'none',
+                                    }}>{key}
+                                        <span style={{ marginLeft: 8, fontSize: 11, color: 'var(--text-muted)' }}>
+                                            {value.length} 字
+                                        </span>
+                                    </summary>
+                                    <pre style={{
+                                        margin: '6px 0 0', padding: '10px 12px', fontSize: 12, lineHeight: 1.6,
+                                        background: 'var(--bg-tertiary)', borderRadius: 'var(--radius-sm)',
+                                        whiteSpace: 'pre-wrap', wordBreak: 'break-all', color: 'var(--text-primary)',
+                                        maxHeight: 300, overflow: 'auto', border: '1px solid var(--border-light)',
+                                    }}>{value}</pre>
+                                </details>
+                            ))}
                         </div>
                     </div>
                 )
             }
-        </div >
+        </>
     );
 }

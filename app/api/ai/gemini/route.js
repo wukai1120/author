@@ -1,11 +1,16 @@
 // Gemini 原生 API — SSE 流式转发（Edge Runtime 确保流式不被缓冲）
 // 使用 streamGenerateContent 端点
 
-export const runtime = 'edge';
+export const runtime = 'nodejs';
+export const maxDuration = 120;
+
+import { applyContentSafety } from '../../../lib/content-safety';
+import { proxyFetch } from '../../../lib/proxy-fetch';
 
 export async function POST(request) {
     try {
         const { systemPrompt, userPrompt, apiConfig, maxTokens, temperature, topP, reasoningEffort, tools: toolsConfig } = await request.json();
+        const proxyUrl = apiConfig?.proxyUrl || '';
 
         const apiKey = apiConfig?.apiKey || process.env.GEMINI_API_KEY;
         let rawBaseUrl = apiConfig?.baseUrl;
@@ -27,7 +32,7 @@ export async function POST(request) {
 
         const requestBody = {
             system_instruction: {
-                parts: [{ text: systemPrompt }]
+                parts: [{ text: applyContentSafety(systemPrompt) }]
             },
             contents: [
                 {
@@ -53,11 +58,11 @@ export async function POST(request) {
         if (toolsConfig?.codeExecution) geminiTools.push({ codeExecution: {} });
         if (geminiTools.length > 0) requestBody.tools = geminiTools;
 
-        const response = await fetch(url, {
+        const response = await proxyFetch(url, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(requestBody),
-        });
+        }, proxyUrl);
 
         if (!response.ok) {
             const errorText = await response.text();

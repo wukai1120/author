@@ -1,7 +1,11 @@
 // Claude/Anthropic Messages API — SSE 流式转发（Edge Runtime 确保流式不被缓冲）
 // 使用 Anthropic Messages API 格式 (/v1/messages)
 
-export const runtime = 'edge';
+export const runtime = 'nodejs';
+export const maxDuration = 120;
+
+import { applyContentSafety } from '../../../lib/content-safety';
+import { proxyFetch } from '../../../lib/proxy-fetch';
 
 // Anthropic 格式的搜索工具定义
 const WEB_SEARCH_TOOL = {
@@ -49,6 +53,7 @@ async function executeSearch(query, searchConfig) {
 export async function POST(request) {
     try {
         const { systemPrompt, userPrompt, apiConfig, maxTokens, temperature, topP, reasoningEffort, tools: toolsConfig } = await request.json();
+        const proxyUrl = apiConfig?.proxyUrl || '';
 
         const apiKey = apiConfig?.apiKey || process.env.CLAUDE_API_KEY;
         const baseUrl = (apiConfig?.baseUrl || process.env.CLAUDE_BASE_URL || 'https://api.anthropic.com').replace(/\/$/, '');
@@ -71,7 +76,7 @@ export async function POST(request) {
         const baseParams = {
             model,
             max_tokens: maxTokens || 8192,
-            system: systemPrompt,
+            system: applyContentSafety(systemPrompt),
             ...(temperature != null ? { temperature } : {}),
             ...(topP != null ? { top_p: topP } : {}),
         };
@@ -95,7 +100,7 @@ export async function POST(request) {
             if (!toolsConfig.searchConfig.provider) toolsConfig.searchConfig.provider = 'tavily';
 
             // 第 1 轮：非流式请求，附带搜索工具定义
-            const round1Res = await fetch(url, {
+            const round1Res = await proxyFetch(url, {
                 method: 'POST',
                 headers: commonHeaders,
                 body: JSON.stringify({
@@ -103,7 +108,7 @@ export async function POST(request) {
                     messages,
                     tools: [WEB_SEARCH_TOOL],
                 }),
-            });
+            }, proxyUrl);
 
             if (!round1Res.ok) {
                 const errorText = await round1Res.text();
@@ -159,7 +164,7 @@ export async function POST(request) {
                     { role: 'user', content: toolResults },
                 ];
 
-                const round2Res = await fetch(url, {
+                const round2Res = await proxyFetch(url, {
                     method: 'POST',
                     headers: commonHeaders,
                     body: JSON.stringify({
@@ -167,7 +172,7 @@ export async function POST(request) {
                         messages: round2Messages,
                         stream: true,
                     }),
-                });
+                }, proxyUrl);
 
                 if (!round2Res.ok) {
                     const errorText = await round2Res.text();
@@ -216,11 +221,11 @@ export async function POST(request) {
             stream: true,
         };
 
-        const response = await fetch(url, {
+        const response = await proxyFetch(url, {
             method: 'POST',
             headers: commonHeaders,
             body: JSON.stringify(requestBody),
-        });
+        }, proxyUrl);
 
         if (!response.ok) {
             const errorText = await response.text();

@@ -8,13 +8,52 @@ export default function UpdateBanner() {
     const [updateInfo, setUpdateInfo] = useState(null);
     const [dismissed, setDismissed] = useState(false);
     const [updating, setUpdating] = useState(false);
-    const [updateResult, setUpdateResult] = useState(null); // { success, message, logs }
+    const [updateResult, setUpdateResult] = useState(null); // { success, message }
     const [downloadProgress, setDownloadProgress] = useState(null); // { progress, downloaded, total }
     const [sourceProgress, setSourceProgress] = useState(null); // { step, total, label, status }
+    const [downloaded, setDownloaded] = useState(false); // 下载完成，等待安装
 
     const isElectron = typeof window !== 'undefined' && window.electronAPI?.isElectron;
 
+    // ===== Electron 模式：监听 electron-updater 事件 =====
     useEffect(() => {
+        if (!isElectron) return;
+
+        // 监听 update-available 事件（由 main 进程自动检查后推送）
+        window.electronAPI.onUpdateAvailable?.((data) => {
+            const dismissedVersion = sessionStorage.getItem('author-update-dismissed');
+            if (dismissedVersion === data.version) return;
+            setUpdateInfo({
+                hasUpdate: true,
+                latest: data.version,
+                isElectronNative: true,
+            });
+        });
+
+        // 监听下载进度
+        window.electronAPI.onUpdateProgress?.((data) => {
+            setDownloadProgress(data);
+        });
+
+        // 监听下载完成
+        window.electronAPI.onUpdateDownloaded?.((data) => {
+            setDownloaded(true);
+            setUpdating(false);
+            setDownloadProgress(null);
+        });
+
+        // 监听错误
+        window.electronAPI.onUpdateError?.((data) => {
+            setUpdateResult({ success: false, message: t('update.updateFailed') + ': ' + (data.error || '') });
+            setUpdating(false);
+            setDownloadProgress(null);
+        });
+    }, [isElectron, t]);
+
+    // ===== Web 模式：API 检查更新 =====
+    useEffect(() => {
+        if (isElectron) return; // Electron 由 main 进程自动检查
+
         const checkUpdate = async () => {
             try {
                 const res = await fetch('/api/check-update', { cache: 'no-store' });
@@ -33,15 +72,6 @@ export default function UpdateBanner() {
 
         const timer = setTimeout(checkUpdate, 3000);
         return () => clearTimeout(timer);
-    }, []);
-
-    // 监听 Electron 下载进度
-    useEffect(() => {
-        if (isElectron && window.electronAPI?.onUpdateProgress) {
-            window.electronAPI.onUpdateProgress((data) => {
-                setDownloadProgress(data);
-            });
-        }
     }, [isElectron]);
 
     const handleDismiss = () => {
@@ -51,24 +81,29 @@ export default function UpdateBanner() {
         }
     };
 
-    // Electron 客户端：自动下载安装
+    // Electron 客户端：通过 electron-updater 下载
     const handleElectronUpdate = async () => {
         setUpdating(true);
         setUpdateResult(null);
         setDownloadProgress({ progress: 0, downloaded: 0, total: 0 });
         try {
-            const result = await window.electronAPI.downloadAndInstallUpdate();
+            const result = await window.electronAPI.downloadUpdate();
             if (!result.success) {
                 setUpdateResult({ success: false, message: t('update.updateFailed') + ': ' + (result.error || '') });
                 setDownloadProgress(null);
+                setUpdating(false);
             }
-            // 成功时 app 会自动退出，不需要处理
+            // 下载成功后由 onUpdateDownloaded 事件处理
         } catch (err) {
             setUpdateResult({ success: false, message: t('update.updateFailed') + ': ' + err.message });
             setDownloadProgress(null);
-        } finally {
             setUpdating(false);
         }
+    };
+
+    // Electron 客户端：退出并安装
+    const handleQuitAndInstall = () => {
+        window.electronAPI.quitAndInstall();
     };
 
     // 源码部署：SSE 流式更新
@@ -138,8 +173,23 @@ export default function UpdateBanner() {
                 <span className="update-banner-icon">🔔</span>
                 <span className="update-banner-text">{versionText}</span>
 
-                {/* 一键更新（Electron 或 源码部署） */}
-                {canAutoUpdate && !updateResult && (
+                {/* 下载完成 → 显示重启按钮（仅 Electron） */}
+                {downloaded && (
+                    <button
+                        className="update-banner-link"
+                        onClick={handleQuitAndInstall}
+                        style={{
+                            background: 'rgba(167,243,208,0.3)', border: '1px solid rgba(167,243,208,0.6)',
+                            borderRadius: 6, padding: '3px 12px', cursor: 'pointer',
+                            fontWeight: 700, transition: 'all 0.15s', color: '#a7f3d0',
+                        }}
+                    >
+                        🔄 {t('update.restartNow') || '立即重启安装'}
+                    </button>
+                )}
+
+                {/* 一键更新（未下载完成时） */}
+                {canAutoUpdate && !updateResult && !downloaded && (
                     <button
                         className="update-banner-link"
                         onClick={handleUpdate}
@@ -242,20 +292,6 @@ export default function UpdateBanner() {
                     ✕
                 </button>
             </div>
-
-            {/* 更新日志（源码部署） */}
-            {updateResult?.logs && updateResult.logs.length > 0 && (
-                <div style={{
-                    background: 'rgba(0,0,0,0.3)', padding: '8px 20px',
-                    fontSize: 11, fontFamily: 'var(--font-mono, monospace)',
-                    color: 'rgba(255,255,255,0.85)', maxHeight: 120, overflowY: 'auto',
-                    lineHeight: 1.6,
-                }}>
-                    {updateResult.logs.map((l, i) => (
-                        <div key={i}>{l.msg}</div>
-                    ))}
-                </div>
-            )}
         </div>
     );
 }

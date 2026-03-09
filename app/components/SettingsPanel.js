@@ -23,6 +23,7 @@ import {
 import SettingsTree from './SettingsTree';
 import { useI18n } from '../lib/useI18n';
 import SettingsItemEditor from './SettingsItemEditor';
+import { getModeRolePrompt } from '../lib/context-engine';
 import { downloadFile, downloadBlob } from '../lib/project-io';
 import {
     detectCategory, parseTextToFields, mapFieldsToContent,
@@ -872,6 +873,36 @@ function PreferencesForm() {
     const { language, setLanguage, visualTheme, setVisualTheme, sidebarPushMode, setSidebarPushMode, aiSidebarPushMode, setAiSidebarPushMode } = useAppStore();
     const { t } = useI18n();
 
+    // ---- 自定义提示词 ----
+    const [customPrompt, setCustomPrompt] = useState('');
+    const [promptSaveTimer, setPromptSaveTimer] = useState(null);
+    const writingMode = getWritingMode();
+    const defaultPrompt = getModeRolePrompt(writingMode);
+
+    useEffect(() => {
+        const settings = getProjectSettings();
+        setCustomPrompt(settings.customPrompt || '');
+    }, []);
+
+    const handlePromptChange = (value) => {
+        setCustomPrompt(value);
+        // 500ms 防抖保存
+        if (promptSaveTimer) clearTimeout(promptSaveTimer);
+        const timer = setTimeout(() => {
+            const settings = getProjectSettings();
+            settings.customPrompt = value;
+            saveProjectSettings(settings);
+        }, 500);
+        setPromptSaveTimer(timer);
+    };
+
+    const handleResetPrompt = () => {
+        setCustomPrompt('');
+        const settings = getProjectSettings();
+        settings.customPrompt = '';
+        saveProjectSettings(settings);
+    };
+
     const layoutBtnStyle = (active) => ({
         flex: 1, padding: '10px 14px',
         border: active ? '2px solid var(--accent)' : '1px solid var(--border-light)',
@@ -976,6 +1007,57 @@ function PreferencesForm() {
                             <div style={{ fontSize: 11, color: 'var(--text-muted)' }}>{t('preferences.layoutPushDesc')}</div>
                         </button>
                     </div>
+                </div>
+            </div>
+
+            {/* 自定义系统提示词 */}
+            <div style={{ marginBottom: 24 }}>
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}>
+                    <label style={{ fontSize: 13, fontWeight: 500, color: 'var(--text-secondary)' }}>
+                        ✨ 自定义系统提示词
+                    </label>
+                    {customPrompt && (
+                        <button
+                            onClick={handleResetPrompt}
+                            style={{
+                                background: 'none', border: '1px solid var(--border-light)',
+                                borderRadius: 'var(--radius-sm)', padding: '3px 10px',
+                                cursor: 'pointer', fontSize: 11, color: 'var(--text-muted)',
+                                transition: 'all 0.15s',
+                            }}
+                            onMouseEnter={e => e.currentTarget.style.color = 'var(--text-primary)'}
+                            onMouseLeave={e => e.currentTarget.style.color = 'var(--text-muted)'}
+                        >
+                            ↩ 恢复默认
+                        </button>
+                    )}
+                </div>
+                <div style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 8, lineHeight: 1.5 }}>
+                    自定义 AI 的角色设定和写作风格。留空则使用内置默认提示词（基于当前写作模式）。
+                </div>
+                <textarea
+                    value={customPrompt}
+                    onChange={e => handlePromptChange(e.target.value)}
+                    placeholder={defaultPrompt}
+                    rows={8}
+                    style={{
+                        width: '100%', padding: '12px 14px',
+                        background: 'var(--bg-primary)', border: '1px solid var(--border-light)',
+                        borderRadius: 'var(--radius-md)', color: 'var(--text-primary)',
+                        fontSize: 13, lineHeight: 1.6, resize: 'vertical',
+                        fontFamily: 'inherit', outline: 'none', transition: 'border 0.15s',
+                        minHeight: 120, maxHeight: 400,
+                    }}
+                    onFocus={e => e.currentTarget.style.borderColor = 'var(--accent)'}
+                    onBlur={e => e.currentTarget.style.borderColor = 'var(--border-light)'}
+                />
+                <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 6 }}>
+                    <span style={{ fontSize: 11, color: 'var(--text-muted)' }}>
+                        {customPrompt ? '✅ 使用自定义提示词' : '📝 使用内置默认提示词'}
+                    </span>
+                    <span style={{ fontSize: 11, color: 'var(--text-muted)' }}>
+                        {customPrompt.length} 字
+                    </span>
                 </div>
             </div>
         </div>
@@ -1286,6 +1368,8 @@ function ApiConfigForm({ data, onChange }) {
                     {/* API 地址 */}
                     <FieldInput label={isCustom ? t('apiConfig.apiAddress') : t('apiConfig.apiAddressAuto')} value={data.baseUrl} onChange={v => update('baseUrl', v)} placeholder={data.provider === 'custom-gemini' ? 'https://generativelanguage.googleapis.com/v1beta' : data.provider === 'custom-claude' ? 'https://api.anthropic.com' : t('apiConfig.apiAddressPlaceholder')} />
 
+                    {/* 代理地址 */}
+                    <FieldInput label="🌐 代理地址（可选）" value={data.proxyUrl || ''} onChange={v => update('proxyUrl', v)} placeholder="http://127.0.0.1:7890" />
                     {/* 模型选择 — 统一用弹窗管理，内联只显示当前模型 + 获取按钮 */}
                     <div style={{ marginBottom: 14 }}>
                         <label style={{ display: 'block', fontSize: 13, fontWeight: 500, color: 'var(--text-secondary)', marginBottom: 5 }}>

@@ -421,7 +421,12 @@ export async function getContextPreview(activeChapterId, selectedText) {
 export function compileSystemPrompt(context, mode) {
     const sections = [];
 
-    sections.push(getModeRolePrompt(context.writingMode));
+    // 优先使用用户自定义提示词，否则使用内置默认
+    const settings = getProjectSettings();
+    const rolePrompt = settings.customPrompt?.trim()
+        ? settings.customPrompt.trim()
+        : getModeRolePrompt(context.writingMode);
+    sections.push(rolePrompt);
 
     if (context.bookInfo) {
         sections.push(`【作品信息】\n${context.bookInfo}`);
@@ -710,7 +715,7 @@ function getModeInstruction(mode) {
 
 // ==================== 写作模式角色提示词 ====================
 
-function getModeRolePrompt(writingMode) {
+export function getModeRolePrompt(writingMode) {
     const base = `你的核心原则：
 - 深度理解作品的世界观和人物，绝不写出与设定矛盾的内容
 - 保持作者已建立的写作风格和语气，你是协作者，不是替代者

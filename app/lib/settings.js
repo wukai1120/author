@@ -106,6 +106,9 @@ const DEFAULT_SETTINGS = {
     // 写作模式
     writingMode: 'webnovel',
 
+    // 用户自定义系统提示词（为空时使用内置默认提示词）
+    customPrompt: '',
+
     // API 配置 — 用户自己填入 API Key
     apiConfig: {
         provider: 'zhipu',   // 预设供应商标识
@@ -126,6 +129,7 @@ const DEFAULT_SETTINGS = {
         maxContextLength: 200000,   // 最大上下文 token
         maxOutputTokens: 65536,     // 最大输出 token
         reasoningEffort: 'auto',    // 思考层级: auto / low / medium / high
+        proxyUrl: '',               // HTTP 代理地址，如 http://127.0.0.1:7890
     },
 
     // 对话侧栏独立模型配置（null = 跟随主配置）

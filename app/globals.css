@@ -3352,6 +3352,17 @@ body.resizing .main-content {
   box-shadow: none;
 }
 
+.chat-stop-btn {
+  background: var(--error, #e53e3e) !important;
+  box-shadow: 0 2px 8px rgba(229, 62, 62, 0.3) !important;
+  animation: pulse 1.5s ease-in-out infinite;
+}
+
+.chat-stop-btn:hover {
+  transform: scale(1.08);
+  filter: brightness(1.1);
+}
+
 /* 底部状态栏 */
 .chat-status-bar {
   display: flex;

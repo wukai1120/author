@@ -1,11 +1,16 @@
 // OpenAI Responses API — SSE 流式转发（Edge Runtime 确保流式不被缓冲）
 // 支持使用 /v1/responses 格式的提供商
 
-export const runtime = 'edge';
+export const runtime = 'nodejs';
+export const maxDuration = 120;
+
+import { applyContentSafety } from '../../../lib/content-safety';
+import { proxyFetch } from '../../../lib/proxy-fetch';
 
 export async function POST(request) {
     try {
         const { systemPrompt, userPrompt, apiConfig, maxTokens, temperature, topP, tools: toolsConfig } = await request.json();
+        const proxyUrl = apiConfig?.proxyUrl || '';
 
         const apiKey = apiConfig?.apiKey || process.env.OPENAI_API_KEY;
         const baseUrl = (apiConfig?.baseUrl || process.env.OPENAI_BASE_URL || 'https://api.openai.com/v1').replace(/\/$/, '');
@@ -24,7 +29,7 @@ export async function POST(request) {
         const requestBody = {
             model,
             input: [
-                { role: 'developer', content: systemPrompt },
+                { role: 'developer', content: applyContentSafety(systemPrompt) },
                 { role: 'user', content: userPrompt },
             ],
             stream: true,
@@ -47,14 +52,14 @@ export async function POST(request) {
             ];
         }
 
-        const response = await fetch(url, {
+        const response = await proxyFetch(url, {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json',
                 'Authorization': `Bearer ${apiKey}`,
             },
             body: JSON.stringify(requestBody),
-        });
+        }, proxyUrl);
 
         if (!response.ok) {
             const errorText = await response.text();

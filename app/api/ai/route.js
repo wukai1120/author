@@ -2,7 +2,11 @@
 // 支持智谱、DeepSeek、OpenAI、Moonshot 等所有兼容 OpenAI 格式的 API
 // 支持 Function Calling 搜索循环 + OpenAI 内置搜索
 
-export const runtime = 'edge';
+export const runtime = 'nodejs';
+export const maxDuration = 120;
+
+import { applyContentSafety } from '../../lib/content-safety';
+import { proxyFetch } from '../../lib/proxy-fetch';
 
 // Function Calling 搜索工具定义
 const WEB_SEARCH_TOOL = {
@@ -56,6 +60,7 @@ async function executeSearch(query, searchConfig) {
 export async function POST(request) {
     try {
         const { systemPrompt, userPrompt, apiConfig, maxTokens, temperature, topP, reasoningEffort, tools: toolsConfig } = await request.json();
+        const proxyUrl = apiConfig?.proxyUrl || '';
 
         const apiKey = apiConfig?.apiKey || process.env.API_KEY || process.env.ZHIPU_API_KEY;
         const baseUrl = apiConfig?.baseUrl || process.env.API_BASE_URL || 'https://open.bigmodel.cn/api/paas/v4';
@@ -81,8 +86,9 @@ export async function POST(request) {
             ...(reasoningEffort && reasoningEffort !== 'auto' ? { reasoning_effort: reasoningEffort } : {}),
         };
 
+        const safeSystemPrompt = applyContentSafety(systemPrompt);
         const messages = [
-            { role: 'system', content: systemPrompt },
+            { role: 'system', content: safeSystemPrompt },
             { role: 'user', content: userPrompt },
         ];
 
@@ -91,14 +97,14 @@ export async function POST(request) {
             // 确保有 provider 默认值
             if (!toolsConfig.searchConfig.provider) toolsConfig.searchConfig.provider = 'tavily';
             // 第 1 轮：非流式请求，附带搜索工具定义
-            const round1Res = await fetch(url, {
+            const round1Res = await proxyFetch(url, {
                 method: 'POST',
                 headers,
                 body: JSON.stringify({
                     model, messages, ...baseParams,
                     tools: [WEB_SEARCH_TOOL],
                 }),
-            });
+            }, proxyUrl);
 
             if (!round1Res.ok) {
                 const errorText = await round1Res.text();
@@ -152,14 +158,14 @@ export async function POST(request) {
                 }
 
                 // 第 2 轮：流式请求，让模型根据搜索结果回复
-                const round2Res = await fetch(url, {
+                const round2Res = await proxyFetch(url, {
                     method: 'POST',
                     headers,
                     body: JSON.stringify({
                         model, messages: extendedMessages, ...baseParams,
                         stream: true,
                     }),
-                });
+                }, proxyUrl);
 
                 if (!round2Res.ok) {
                     const errorText = await round2Res.text();
@@ -200,7 +206,7 @@ export async function POST(request) {
         }
 
         // ===== 普通模式（含 OpenAI 内置搜索） =====
-        const response = await fetch(url, {
+        const response = await proxyFetch(url, {
             method: 'POST',
             headers,
             body: JSON.stringify({
@@ -209,7 +215,7 @@ export async function POST(request) {
                 stream: true,
                 ...(toolsConfig?.webSearch ? { stream_options: { include_usage: true } } : {}),
             }),
-        });
+        }, proxyUrl);
 
         if (!response.ok) {
             const errorText = await response.text();
