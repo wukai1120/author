@@ -248,11 +248,18 @@ export default function AiSidebar({ onInsertText }) {
                 // OpenAI 内置搜索
                 toolsPayload = { webSearch: true };
             } else if (searchMode === 'external' || (!isOpenAI && provider !== 'custom')) {
-                // Function Calling 外部搜索
-                toolsPayload = {
-                    functionSearch: true,
-                    searchConfig: apiConfig?.searchConfig || {},
-                };
+                // Function Calling 外部搜索 — 需要外部搜索 API Key
+                const sc = apiConfig?.searchConfig || {};
+                if (sc.apiKey) {
+                    toolsPayload = {
+                        functionSearch: true,
+                        searchConfig: sc,
+                    };
+                } else {
+                    // 未配置搜索 API Key，提醒用户
+                    console.warn('[AiSidebar] 已启用联网搜索但未配置搜索 API Key（Tavily/Exa），本次跳过搜索');
+                    showToast?.('⚠️ 联网搜索需要配置 Tavily 或 Exa API Key，请在设置 → API配置 → 联网搜索 中填入', 'warning');
+                }
             }
         }
 

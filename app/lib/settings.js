@@ -251,11 +251,27 @@ export function saveProjectSettings(settings) {
 /**
  * 获取对话侧栏使用的 API 配置。
  * 如果已配置独立的 chatApiConfig 则使用它，否则回退到主 apiConfig。
+ * tools 和 searchConfig 始终从主配置继承（如果 chatApiConfig 中缺失）。
  */
 export function getChatApiConfig() {
     const settings = getProjectSettings();
     const chat = settings.chatApiConfig;
-    if (chat && chat.provider) return chat;
+    if (chat && chat.provider) {
+        // 从主配置继承 tools 和 searchConfig（如果 chat 中缺失）
+        const main = settings.apiConfig || {};
+        return {
+            ...chat,
+            tools: chat.tools || main.tools,
+            searchConfig: chat.searchConfig || main.searchConfig,
+            // 继承高级参数设置
+            useAdvancedParams: chat.useAdvancedParams ?? main.useAdvancedParams,
+            temperature: chat.temperature ?? main.temperature,
+            topP: chat.topP ?? main.topP,
+            maxContextLength: chat.maxContextLength ?? main.maxContextLength,
+            maxOutputTokens: chat.maxOutputTokens ?? main.maxOutputTokens,
+            reasoningEffort: chat.reasoningEffort || main.reasoningEffort,
+        };
+    }
     return settings.apiConfig;
 }
 

@@ -97,7 +97,9 @@ export async function POST(request) {
 
         // ===== Function Calling 搜索模式 =====
         if (toolsConfig?.functionSearch && toolsConfig?.searchConfig?.apiKey) {
-            if (!toolsConfig.searchConfig.provider) toolsConfig.searchConfig.provider = 'tavily';
+            if (!toolsConfig.searchConfig.provider) {
+                toolsConfig.searchConfig.provider = toolsConfig.searchConfig.tool || 'tavily';
+            }
 
             // 第 1 轮：非流式请求，附带搜索工具定义
             const round1Res = await proxyFetch(url, {

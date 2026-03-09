@@ -150,7 +150,14 @@ export default function ModelPicker({ target = 'editor', onOpenSettings, classNa
         pc[providerKey].model = modelId;
 
         if (target === 'chat') {
-            settings.chatApiConfig = { ...newCfg };
+            // 继承主配置中的 tools 和 searchConfig，确保搜索设置不丢失
+            const mainTools = settings.apiConfig?.tools;
+            const mainSearchConfig = settings.apiConfig?.searchConfig;
+            settings.chatApiConfig = {
+                ...newCfg,
+                ...(mainTools ? { tools: mainTools } : {}),
+                ...(mainSearchConfig ? { searchConfig: mainSearchConfig } : {}),
+            };
         } else {
             // 先保存旧的供应商配置
             if (settings.apiConfig.provider && settings.apiConfig.provider !== providerKey) {

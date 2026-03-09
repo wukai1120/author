@@ -94,8 +94,10 @@ export async function POST(request) {
 
         // ===== Function Calling 搜索模式 =====
         if (toolsConfig?.functionSearch && toolsConfig?.searchConfig?.apiKey) {
-            // 确保有 provider 默认值
-            if (!toolsConfig.searchConfig.provider) toolsConfig.searchConfig.provider = 'tavily';
+            // 确保有 provider 默认值（兼容前端存为 tool 或 provider）
+            if (!toolsConfig.searchConfig.provider) {
+                toolsConfig.searchConfig.provider = toolsConfig.searchConfig.tool || 'tavily';
+            }
             // 第 1 轮：非流式请求，附带搜索工具定义
             const round1Res = await proxyFetch(url, {
                 method: 'POST',
@@ -117,8 +119,14 @@ export async function POST(request) {
 
             // 检查模型是否要求搜索
             if (assistantMsg?.tool_calls?.length > 0) {
+                // 清理 assistant message：确保 content 为字符串（而非 null）
+                // DeepSeek 推理模型在 tool_calls 时 content 为 null，传回会导致 Round 2 不产出内容
+                const cleanedAssistantMsg = {
+                    ...assistantMsg,
+                    content: assistantMsg.content || '',
+                };
                 // 收集搜索结果和来源
-                const extendedMessages = [...messages, assistantMsg];
+                const extendedMessages = [...messages, cleanedAssistantMsg];
                 const allSources = [];
 
                 for (const toolCall of assistantMsg.tool_calls) {

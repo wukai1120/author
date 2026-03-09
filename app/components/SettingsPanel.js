@@ -1519,6 +1519,11 @@ function ApiConfigForm({ data, onChange }) {
                                         ))}
                                     </div>
                                     <FieldInput label={`${(data.searchConfig?.tool || 'Tavily').charAt(0).toUpperCase() + (data.searchConfig?.tool || 'tavily').slice(1)} API Key`} value={data.searchConfig?.apiKey || ''} onChange={v => onChange({ ...data, searchConfig: { ...(data.searchConfig || {}), apiKey: v } })} placeholder={`填入 ${data.searchConfig?.tool || 'Tavily'} API Key`} secret />
+                                    {!data.searchConfig?.apiKey && (
+                                        <div style={{ fontSize: 11, color: 'var(--error)', marginTop: -8, marginBottom: 6, paddingLeft: 2 }}>
+                                            ⚠️ 当前供应商需要外部搜索 API Key 才能使用联网搜索（<a href={data.searchConfig?.tool === 'exa' ? 'https://exa.ai' : 'https://tavily.com'} target="_blank" rel="noopener noreferrer" style={{ color: 'var(--accent)' }}>点此获取</a>）
+                                        </div>
+                                    )}
                                 </div>
                             )
                         )}
