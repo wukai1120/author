@@ -1,7 +1,10 @@
 'use client';
 
 // ==================== 持久化适配器 ====================
-// 统一的存储接口：优先使用服务端文件系统，fallback 到浏览器 IndexedDB/localStorage
+// 统一的存储接口：
+//   1. 浏览器 IndexedDB/localStorage（本地，始终优先）
+//   2. 服务端文件系统 /api/storage（Docker/自建部署模式）
+//   3. Firebase Firestore（云同步模式，5分钟去抖）
 // 多用户隔离：首次访问自动生成 userId 并存入 cookie
 
 import { get, set, del } from 'idb-keyval';
@@ -71,10 +74,41 @@ async function serverDel(key) {
     if (!res.ok) throw new Error(`Server DELETE failed: ${res.status}`);
 }
 
+// ==================== Firebase 同步 ====================
+
+let _firebaseReady = false;
+let _firestoreSync = null;
+let _authModule = null;
+
+/**
+ * 懒加载 Firebase 模块（避免未配置时报错）
+ */
+async function ensureFirebase() {
+    if (_firebaseReady) return _firestoreSync;
+    try {
+        const { isFirebaseConfigured } = await import('./firebase');
+        if (!isFirebaseConfigured) {
+            _firebaseReady = true;
+            return null;
+        }
+        _firestoreSync = await import('./firestore-sync');
+        _authModule = await import('./auth');
+        _firebaseReady = true;
+        return _firestoreSync;
+    } catch {
+        _firebaseReady = true;
+        return null;
+    }
+}
+
+function isFirebaseSignedIn() {
+    return _authModule?.isSignedIn?.() || false;
+}
+
 // ==================== 统一存储接口 ====================
 
 /**
- * 读取数据（服务端优先，fallback 到 IndexedDB）
+ * 读取数据（本地优先，Firebase 已登录时作为补充）
  * @param {string} key - 存储键名
  * @returns {Promise<any>} 存储的值，不存在时返回 undefined
  */
@@ -82,28 +116,31 @@ export async function persistGet(key) {
     if (typeof window === 'undefined') return undefined;
     ensureUserId();
 
+    // 1. 本地优先读取（快速）
+    let localData;
     try {
         if (await checkServerAvailable()) {
-            const data = await serverGet(key);
-            if (data !== null && data !== undefined) return data;
-            // 服务端没有，尝试从浏览器迁移
-            const localData = await browserGet(key);
-            if (localData !== null && localData !== undefined) {
-                // 自动迁移到服务端
-                await serverSet(key, localData).catch(() => { });
-                return localData;
+            localData = await serverGet(key);
+            if (localData === null || localData === undefined) {
+                // 服务端没有，尝试从浏览器获取
+                localData = await browserGet(key);
+                if (localData !== null && localData !== undefined) {
+                    // 自动迁移到服务端
+                    await serverSet(key, localData).catch(() => { });
+                }
             }
-            return undefined;
+        } else {
+            localData = await browserGet(key);
         }
     } catch {
-        // 服务端失败，降级到浏览器
+        localData = await browserGet(key);
     }
 
-    return await browserGet(key);
+    return localData;
 }
 
 /**
- * 写入数据（同时写入服务端和浏览器）
+ * 写入数据（本地实时 + Firebase 去抖同步）
  * @param {string} key - 存储键名
  * @param {any} value - 要存储的值
  */
@@ -111,14 +148,20 @@ export async function persistSet(key, value) {
     if (typeof window === 'undefined') return;
     ensureUserId();
 
-    // 先写浏览器（立即可用）
+    // 1. 先写浏览器（立即可用）
     await browserSet(key, value);
 
-    // 异步写服务端（不阻塞 UI）
+    // 2. 异步写服务端（不阻塞 UI）
     if (await checkServerAvailable()) {
         serverSet(key, value).catch(err => {
             console.warn('[persist] Server write failed, data saved in browser only:', err.message);
         });
+    }
+
+    // 3. Firebase 云同步（去抖队列，5分钟批量写入）
+    const sync = await ensureFirebase();
+    if (sync && isFirebaseSignedIn()) {
+        sync.firestoreEnqueue(key, value);
     }
 }
 
@@ -133,6 +176,12 @@ export async function persistDel(key) {
 
     if (await checkServerAvailable()) {
         serverDel(key).catch(() => { });
+    }
+
+    // Firebase 删除
+    const sync = await ensureFirebase();
+    if (sync && isFirebaseSignedIn()) {
+        sync.firestoreDel(key).catch(() => { });
     }
 }
 
@@ -193,11 +242,39 @@ export function persistGetSync(key) {
 }
 
 /**
- * 初始化：确保 userId 存在，并触发服务端可用性检测
+ * 初始化：确保 userId 存在，触发服务端检测，初始化 Firebase Auth
  * 应在应用启动时调用一次
  */
 export async function initPersistence() {
     if (typeof window === 'undefined') return;
     ensureUserId();
     await checkServerAvailable();
+
+    // 初始化 Firebase Auth（如果已配置）
+    const sync = await ensureFirebase();
+    if (sync && _authModule) {
+        _authModule.initAuth();
+        // 页面卸载前尝试同步
+        sync.setupBeforeUnloadSync();
+    }
+}
+
+/**
+ * Firebase 登录后调用：从云端拉取数据合并到本地
+ * @returns {Promise<number>} 合并的条数
+ */
+export async function syncFromCloud() {
+    const sync = await ensureFirebase();
+    if (!sync || !isFirebaseSignedIn()) return 0;
+    return await sync.pullAllFromCloud(browserGet, browserSet);
+}
+
+/**
+ * Firebase 退出登录前调用：同步剩余数据 + 停止同步
+ */
+export async function stopCloudSync() {
+    const sync = await ensureFirebase();
+    if (!sync) return;
+    await sync.flushSync(); // 先同步剩余
+    sync.stopSync();        // 再停止
 }

@@ -16,6 +16,7 @@ import {
   migrateGlobalChapters,
   saveChapters,
 } from './lib/storage';
+import { initPersistence } from './lib/persistence';
 import { buildContext, compileSystemPrompt, compileUserPrompt, getContextItems, estimateTokens } from './lib/context-engine';
 import { addTokenRecord } from './lib/token-stats';
 import { getProjectSettings, WRITING_MODES, getWritingMode, addSettingsNode, updateSettingsNode, deleteSettingsNode, getSettingsNodes, getActiveWorkId } from './lib/settings';
@@ -41,6 +42,10 @@ const SnapshotManager = dynamic(() => import('./components/SnapshotManager'), { 
 const WelcomeModal = dynamic(() => import('./components/WelcomeModal'), { ssr: false });
 const UpdateBanner = dynamic(() => import('./components/UpdateBanner'), { ssr: false });
 const BookInfoPanel = dynamic(() => import('./components/BookInfoPanel'), { ssr: false });
+const CloudSyncIndicator = dynamic(() => import('./components/CloudSyncIndicator'), { ssr: false });
+const LoginModal = dynamic(() => import('./components/LoginModal'), { ssr: false });
+const AccountModal = dynamic(() => import('./components/AccountModal'), { ssr: false });
+const RegisterModal = dynamic(() => import('./components/RegisterModal'), { ssr: false });
 
 export default function Home() {
   const {
@@ -198,6 +203,9 @@ export default function Home() {
   // 初始化数据
   useEffect(() => {
     const initData = async () => {
+      // 初始化 Firebase（如果已配置）
+      await initPersistence();
+
       const workId = getActiveWorkId();
       if (workId) {
         setActiveWorkIdStore(workId);
@@ -445,6 +453,9 @@ export default function Home() {
             <span>A</span>uthor
           </div>
         </div>
+        <div className="top-header-right">
+          <CloudSyncIndicator />
+        </div>
       </header>
 
       {/* ===== 内容区域（编辑器 + AI 侧栏）===== */}
@@ -579,6 +590,9 @@ export default function Home() {
 
       {/* ===== 首次引导 ===== */}
       <TourOverlay onOpenHelp={() => setShowHelp(true)} />
+      <LoginModal />
+      <AccountModal />
+      <RegisterModal />
       <WelcomeModal />
     </div>
   );

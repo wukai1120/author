@@ -57,6 +57,16 @@ const store = create((set, get) => ({
     showSettings: false,
     setShowSettings: (show, tab) => set({ showSettings: (show === true ? (tab || 'settings') : show) || false }),
 
+    showLoginModal: false,
+    setShowLoginModal: (show) => set({ showLoginModal: !!show }),
+
+    showAccountModal: false,
+    accountModalSwitcher: false,
+    setShowAccountModal: (show, switcher = false) => set({ showAccountModal: !!show, accountModalSwitcher: !!switcher }),
+
+    showRegisterModal: false,
+    setShowRegisterModal: (show) => set({ showRegisterModal: !!show }),
+
     showBookInfo: false,
     setShowBookInfo: (show) => set({ showBookInfo: !!show }),
 

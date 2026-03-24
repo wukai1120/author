@@ -340,6 +340,13 @@ body {
   color: var(--accent);
 }
 
+.top-header-right {
+  display: flex !important;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+}
+
 /* ===== 内容区（编辑器 + AI 侧栏）===== */
 .content-row {
   display: flex;
@@ -6330,7 +6337,983 @@ h5.chat-md-heading {
   box-shadow: none;
 }
 
-/* ==================== 更新提示条 ==================== */
+.welcome-skip-btn {
+  background: none;
+  border: 1px solid var(--border-light);
+  color: var(--text-muted);
+  border-radius: 99px;
+  cursor: pointer;
+  transition: all var(--transition-fast);
+}
+.welcome-skip-btn:hover {
+  color: var(--text-primary);
+  border-color: var(--border-medium);
+  background: var(--bg-hover);
+}
+
+/* Cloud sync step in WelcomeModal */
+.welcome-modal-container.step-3 {
+  max-width: 520px;
+}
+
+.welcome-cloud-features {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  margin-bottom: 32px;
+}
+
+.welcome-cloud-feature {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 14px 18px;
+  border-radius: var(--radius-md);
+  background: var(--bg-card);
+  border: 1px solid var(--border-light);
+  transition: all var(--transition-fast);
+}
+
+.welcome-cloud-feature:hover {
+  border-color: var(--accent);
+  box-shadow: 0 4px 12px var(--accent-glow);
+  transform: translateY(-1px);
+}
+
+.welcome-cloud-feature-icon {
+  width: 48px;
+  height: 48px;
+  border-radius: var(--radius-md);
+  background: var(--accent-light);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 22px;
+  flex-shrink: 0;
+}
+
+.welcome-cloud-feature h4 {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text-primary);
+  margin-bottom: 2px;
+}
+
+.welcome-cloud-feature p {
+  font-size: 12px;
+  color: var(--text-muted);
+  line-height: 1.4;
+}
+
+/* ==================== 顶栏云同步指示器 ==================== */
+
+.top-header-right {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.cloud-sync-indicator {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 12px;
+  border-radius: var(--radius-full);
+  border: 1px solid var(--border-light);
+  background: var(--bg-card);
+  cursor: pointer;
+  transition: all var(--transition-fast);
+  font-size: 12px;
+  font-family: var(--font-ui);
+  color: var(--text-secondary);
+  position: relative;
+}
+
+.cloud-sync-indicator:hover {
+  border-color: var(--accent);
+  background: var(--accent-light);
+  color: var(--accent);
+}
+
+.cloud-sync-login {
+  color: var(--text-muted);
+}
+
+.cloud-sync-login:hover {
+  box-shadow: 0 2px 8px var(--accent-glow);
+}
+
+.cloud-sync-label {
+  font-weight: 500;
+  white-space: nowrap;
+}
+
+.cloud-sync-avatar {
+  width: 30px;
+  height: 30px;
+  border-radius: 50%;
+  object-fit: cover;
+}
+
+.cloud-sync-avatar-letter {
+  width: 30px;
+  height: 30px;
+  border-radius: 50%;
+  background: var(--accent-light);
+  color: var(--accent);
+  font-weight: 700;
+  font-size: 13px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.cloud-sync-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #22c55e;
+  position: absolute;
+  bottom: 0;
+  right: 0;
+  border: 2px solid var(--bg-card);
+}
+
+.cloud-sync-status-text {
+  font-size: 11px;
+  color: var(--text-muted);
+  white-space: nowrap;
+}
+
+.cloud-sync-active {
+  border: none;
+  background: transparent;
+  padding: 2px;
+  border-radius: 50%;
+}
+
+.cloud-sync-active:hover {
+  border: none;
+  background: transparent;
+  opacity: 0.8;
+}
+
+/* Cloud sync dropdown menu */
+.cloud-sync-menu-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 9990;
+}
+
+.cloud-sync-menu {
+  position: fixed;
+  z-index: 9991;
+  min-width: 260px;
+  background: var(--bg-card);
+  border: 1px solid var(--border-light);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-lg);
+  padding: 8px;
+  animation: fadeInDown 0.15s ease;
+}
+
+@keyframes fadeInDown {
+  from { opacity: 0; transform: translateY(-8px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+.cloud-sync-menu-header {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px;
+  border-bottom: 1px solid var(--border-light);
+  margin-bottom: 4px;
+}
+
+.cloud-sync-menu-avatar {
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  border: 2px solid var(--border-light);
+  object-fit: cover;
+}
+
+.cloud-sync-menu-avatar-letter {
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  background: var(--accent-light);
+  color: var(--accent);
+  font-weight: 700;
+  font-size: 16px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 2px solid var(--accent-glow);
+}
+
+.cloud-sync-menu-info {
+  flex: 1;
+  min-width: 0;
+}
+
+.cloud-sync-menu-name {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-primary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.cloud-sync-menu-email {
+  font-size: 11px;
+  color: var(--text-muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.cloud-sync-menu-status {
+  font-size: 11px;
+  color: var(--text-muted);
+  padding: 8px 12px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.cloud-sync-menu-divider {
+  height: 1px;
+  background: var(--border-light);
+  margin: 4px 0;
+}
+
+.cloud-sync-menu-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 8px 12px;
+  font-size: 13px;
+  color: var(--text-secondary);
+  background: none;
+  border: none;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  transition: all var(--transition-fast);
+  font-family: var(--font-ui);
+}
+
+.cloud-sync-menu-item:hover {
+  background: var(--bg-hover);
+  color: var(--text-primary);
+}
+
+.cloud-sync-menu-logout:hover {
+  color: #ef4444;
+  background: rgba(239, 68, 68, 0.06);
+}
+
+/* Sidebar nav cloud active styling */
+.sidebar-nav-pane .nav-item.nav-cloud-active {
+  color: #22c55e;
+}
+.sidebar-nav-pane .nav-item.nav-cloud-active:hover {
+  color: #16a34a;
+  background: rgba(34, 197, 94, 0.08);
+}
+
+.spin {
+  animation: spin 1s linear infinite;
+}
+
+/* ==================== 独立登录弹窗 ==================== */
+
+.login-modal-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 10000;
+  background: rgba(0, 0, 0, 0.45);
+  backdrop-filter: blur(6px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  animation: fadeIn 0.2s ease;
+}
+
+.login-modal {
+  position: relative;
+  width: 420px;
+  max-width: 92vw;
+  background: var(--bg-card);
+  border: 1px solid var(--border-light);
+  border-radius: var(--radius-lg);
+  box-shadow: 0 24px 80px rgba(0, 0, 0, 0.25);
+  padding: 40px 36px 32px;
+  animation: modalSlideIn 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+@keyframes modalSlideIn {
+  from { opacity: 0; transform: translateY(24px) scale(0.96); }
+  to { opacity: 1; transform: translateY(0) scale(1); }
+}
+
+.login-modal-close {
+  position: absolute;
+  top: 14px;
+  right: 14px;
+  width: 32px;
+  height: 32px;
+  border: none;
+  border-radius: 50%;
+  background: transparent;
+  color: var(--text-muted);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all var(--transition-fast);
+}
+.login-modal-close:hover {
+  background: var(--bg-hover);
+  color: var(--text-primary);
+}
+
+.login-modal-header {
+  text-align: center;
+  margin-bottom: 28px;
+}
+
+.login-modal-icon {
+  width: 56px;
+  height: 56px;
+  border-radius: 16px;
+  background: transparent;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin: 0 auto 16px;
+  overflow: hidden;
+}
+
+.login-modal-logo-img {
+  width: 56px;
+  height: 56px;
+  border-radius: 16px;
+  object-fit: cover;
+}
+
+.login-modal-google-icon {
+  width: 18px;
+  height: 18px;
+  border-radius: 2px;
+  object-fit: contain;
+}
+
+/* 注册密码强度条 */
+.register-pw-strength {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 2px;
+}
+
+.register-pw-bar {
+  flex: 1;
+  height: 4px;
+  border-radius: 2px;
+  background: var(--border-light);
+  overflow: hidden;
+}
+
+.register-pw-fill {
+  height: 100%;
+  border-radius: 2px;
+  transition: width 0.3s ease, background 0.3s ease;
+}
+
+.login-modal-title {
+  font-size: 22px;
+  font-weight: 700;
+  color: var(--text-primary);
+  margin-bottom: 6px;
+  font-family: var(--font-ui);
+}
+
+.login-modal-desc {
+  font-size: 13px;
+  color: var(--text-muted);
+  line-height: 1.5;
+}
+
+.login-modal-google-btn {
+  width: 100%;
+  padding: 11px 20px;
+  font-size: 14px;
+  font-weight: 500;
+  border: 1px solid var(--border-light);
+  border-radius: var(--radius-sm);
+  background: var(--bg-primary);
+  color: var(--text-primary);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  transition: all var(--transition-fast);
+  font-family: var(--font-ui);
+  height: 44px;
+  overflow: hidden;
+}
+.login-modal-google-btn img {
+  width: 18px;
+  height: 18px;
+  flex-shrink: 0;
+  object-fit: contain;
+}
+.login-modal-google-btn:hover {
+  background: var(--bg-secondary);
+  border-color: var(--border-medium);
+  box-shadow: var(--shadow-sm);
+}
+.login-modal-google-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.login-modal-divider {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin: 20px 0;
+}
+.login-modal-divider::before,
+.login-modal-divider::after {
+  content: '';
+  flex: 1;
+  height: 1px;
+  background: var(--border-light);
+}
+.login-modal-divider span {
+  font-size: 12px;
+  color: var(--text-muted);
+  white-space: nowrap;
+}
+
+.login-modal-form {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-bottom: 16px;
+}
+
+.login-modal-input-wrap {
+  position: relative;
+  display: flex;
+  align-items: center;
+}
+
+.login-modal-input-icon {
+  position: absolute;
+  left: 12px;
+  color: var(--text-muted);
+  pointer-events: none;
+  z-index: 1;
+}
+
+.login-modal-input {
+  width: 100%;
+  padding: 10px 12px 10px 38px;
+  font-size: 14px;
+  border: 1px solid var(--border-light);
+  border-radius: var(--radius-sm);
+  background: var(--bg-primary);
+  color: var(--text-primary);
+  outline: none;
+  transition: border-color var(--transition-fast), box-shadow var(--transition-fast);
+  font-family: var(--font-ui);
+}
+.login-modal-input:focus {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-light);
+}
+.login-modal-input::placeholder {
+  color: var(--text-muted);
+}
+
+.login-modal-error {
+  font-size: 12px;
+  color: #ef4444;
+  padding: 8px 12px;
+  background: rgba(239, 68, 68, 0.06);
+  border-radius: var(--radius-sm);
+  margin-bottom: 12px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.login-modal-submit-btn {
+  width: 100%;
+  padding: 11px 20px;
+  font-size: 15px;
+  font-weight: 600;
+  border: none;
+  border-radius: var(--radius-sm);
+  background: linear-gradient(135deg, var(--accent), var(--accent-hover));
+  color: #fff;
+  cursor: pointer;
+  transition: all var(--transition-fast);
+  box-shadow: 0 4px 12px var(--accent-glow);
+  font-family: var(--font-ui);
+}
+.login-modal-submit-btn:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 6px 16px var(--accent-glow);
+}
+.login-modal-submit-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+  transform: none;
+  box-shadow: none;
+}
+
+.login-modal-switch {
+  text-align: center;
+  font-size: 13px;
+  color: var(--text-muted);
+  margin-top: 16px;
+}
+.login-modal-switch button {
+  background: none;
+  border: none;
+  color: var(--accent);
+  font-weight: 600;
+  cursor: pointer;
+  font-size: 13px;
+  font-family: var(--font-ui);
+  transition: color var(--transition-fast);
+}
+.login-modal-switch button:hover {
+  color: var(--accent-hover);
+}
+
+/* ==================== 独立账户弹窗 ==================== */
+
+.account-modal {
+  position: relative;
+  width: 420px;
+  max-width: 92vw;
+  background: var(--bg-card);
+  border: 1px solid var(--border-light);
+  border-radius: var(--radius-lg);
+  box-shadow: 0 24px 80px rgba(0, 0, 0, 0.25);
+  padding: 36px 32px 28px;
+  animation: modalSlideIn 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.account-modal-profile {
+  text-align: center;
+  margin-bottom: 24px;
+}
+
+.account-modal-avatar-wrap {
+  position: relative;
+  width: 72px;
+  height: 72px;
+  margin: 0 auto 14px;
+}
+
+.account-modal-avatar-overlay {
+  position: absolute;
+  inset: 0;
+  border-radius: 50%;
+  background: rgba(0, 0, 0, 0.45);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #fff;
+  opacity: 0;
+  transition: opacity 0.2s;
+}
+
+.account-modal-avatar-wrap:hover .account-modal-avatar-overlay {
+  opacity: 1;
+}
+
+.account-modal-avatar {
+  width: 72px;
+  height: 72px;
+  border-radius: 50%;
+  object-fit: cover;
+}
+
+.account-modal-avatar-letter {
+  width: 72px;
+  height: 72px;
+  border-radius: 50%;
+  background: linear-gradient(135deg, var(--accent), var(--accent-hover));
+  color: #fff;
+  font-size: 28px;
+  font-weight: 700;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.account-modal-status-dot {
+  position: absolute;
+  bottom: 2px;
+  right: 2px;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  border: 3px solid var(--bg-card);
+}
+
+.account-modal-name {
+  font-size: 20px;
+  font-weight: 700;
+  color: var(--text-primary);
+  margin-bottom: 2px;
+  font-family: var(--font-ui);
+}
+
+.account-modal-email {
+  font-size: 13px;
+  color: var(--text-muted);
+}
+
+.account-modal-sync-card {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 14px 16px;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-light);
+  border-radius: var(--radius-sm);
+  margin-bottom: 20px;
+}
+
+.account-modal-sync-icon {
+  width: 40px;
+  height: 40px;
+  border-radius: 10px;
+  background: var(--bg-primary);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.account-modal-sync-info {
+  flex: 1;
+  min-width: 0;
+}
+
+.account-modal-sync-label {
+  font-size: 11px;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  margin-bottom: 2px;
+}
+
+.account-modal-sync-value {
+  font-size: 14px;
+  font-weight: 600;
+  font-family: var(--font-ui);
+}
+
+.account-modal-details {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+  margin-bottom: 20px;
+  border: 1px solid var(--border-light);
+  border-radius: var(--radius-sm);
+  overflow: hidden;
+}
+
+.account-modal-detail-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 14px;
+  font-size: 13px;
+  color: var(--text-muted);
+  border-bottom: 1px solid var(--border-light);
+}
+.account-modal-detail-row:last-child {
+  border-bottom: none;
+}
+
+.account-modal-detail-label {
+  flex-shrink: 0;
+  min-width: 60px;
+  color: var(--text-muted);
+}
+
+.account-modal-detail-value {
+  flex: 1;
+  text-align: right;
+  color: var(--text-primary);
+  font-weight: 500;
+}
+
+/* 昵称编辑 */
+.account-modal-name-row {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+}
+.account-modal-edit-btn {
+  background: none;
+  border: none;
+  color: var(--text-muted);
+  cursor: pointer;
+  padding: 4px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  transition: all var(--transition-fast);
+}
+.account-modal-edit-btn:hover {
+  background: var(--bg-secondary);
+  color: var(--text-primary);
+}
+.account-modal-edit-name {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 4px auto 0;
+  max-width: 200px;
+}
+.account-modal-name-input {
+  flex: 1;
+  padding: 5px 10px;
+  border: 1px solid var(--border-medium);
+  border-radius: var(--radius-sm);
+  background: var(--bg-secondary);
+  color: var(--text-primary);
+  font-size: 15px;
+  font-weight: 600;
+  text-align: center;
+  outline: none;
+  font-family: var(--font-ui);
+}
+.account-modal-name-input:focus {
+  border-color: var(--accent);
+}
+.account-modal-save-btn {
+  padding: 5px 8px;
+  border: none;
+  border-radius: var(--radius-sm);
+  background: var(--accent);
+  color: #fff;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+}
+.account-modal-save-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+.account-modal-save-msg {
+  font-size: 12px;
+  color: #22c55e;
+  text-align: center;
+  margin: 4px 0 0;
+}
+
+/* 同步卡片可点击 */
+.account-modal-sync-card {
+  cursor: pointer;
+}
+.account-modal-sync-card:hover {
+  background: var(--bg-secondary);
+}
+
+/* 操作按钮组 */
+.account-modal-actions {
+  display: flex;
+  gap: 10px;
+  margin-top: 8px;
+}
+.account-modal-action-btn {
+  flex: 1;
+  padding: 10px 12px;
+  font-size: 13px;
+  font-weight: 600;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  transition: all var(--transition-fast);
+  font-family: var(--font-ui);
+}
+.account-modal-switch-btn {
+  border: 1px solid var(--border-light);
+  background: var(--bg-primary);
+  color: var(--text-secondary);
+}
+.account-modal-switch-btn:hover {
+  background: var(--bg-secondary);
+  border-color: var(--border-medium);
+  color: var(--text-primary);
+}
+.account-modal-logout-btn {
+  border: 1px solid #fecaca;
+  background: rgba(239, 68, 68, 0.04);
+  color: #ef4444;
+}
+.account-modal-logout-btn:hover {
+  background: rgba(239, 68, 68, 0.1);
+  border-color: #ef4444;
+}
+.account-modal-logout-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+[data-theme="dark"] .account-modal-logout-btn {
+  border-color: rgba(239, 68, 68, 0.3);
+}
+
+.account-modal-footer {
+  text-align: center;
+  font-size: 12px;
+  color: var(--text-muted);
+  margin-top: 12px;
+}
+
+/* ==================== 账号切换面板 ==================== */
+
+.account-switcher {
+  padding: 4px 0;
+}
+.account-switcher-title {
+  font-size: 17px;
+  font-weight: 700;
+  text-align: center;
+  margin-bottom: 16px;
+  color: var(--text-primary);
+}
+.account-switcher-item {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 12px;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  transition: background var(--transition-fast);
+  position: relative;
+}
+.account-switcher-item:hover {
+  background: var(--bg-secondary);
+}
+.account-switcher-item.current {
+  background: var(--accent-light);
+  cursor: default;
+}
+.account-switcher-avatar {
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  overflow: hidden;
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: linear-gradient(135deg, var(--accent), var(--accent-hover));
+  color: #fff;
+  font-weight: 700;
+  font-size: 16px;
+}
+.account-switcher-avatar img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+.account-switcher-avatar.add-icon {
+  background: var(--bg-secondary);
+  color: var(--text-secondary);
+  border: 2px dashed var(--border-medium);
+}
+.account-switcher-info {
+  flex: 1;
+  min-width: 0;
+}
+.account-switcher-name {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text-primary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.account-switcher-email {
+  font-size: 12px;
+  color: var(--text-muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.account-switcher-badge {
+  font-size: 11px;
+  padding: 2px 8px;
+  border-radius: 10px;
+  background: var(--accent);
+  color: #fff;
+  font-weight: 600;
+  flex-shrink: 0;
+}
+.account-switcher-remove {
+  background: none;
+  border: none;
+  color: var(--text-muted);
+  cursor: pointer;
+  padding: 4px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  opacity: 0;
+  transition: all var(--transition-fast);
+}
+.account-switcher-item:hover .account-switcher-remove {
+  opacity: 1;
+}
+.account-switcher-remove:hover {
+  color: #ef4444;
+  background: rgba(239, 68, 68, 0.1);
+}
+.account-switcher-empty {
+  text-align: center;
+  font-size: 13px;
+  color: var(--text-muted);
+  padding: 16px 0;
+}
+.account-switcher-back {
+  display: block;
+  width: 100%;
+  text-align: center;
+  background: none;
+  border: none;
+  color: var(--accent);
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  padding: 12px 0 4px;
+  font-family: var(--font-ui);
+}
+.account-switcher-back:hover {
+  text-decoration: underline;
+}
 
 .update-banner {
   position: fixed;

@@ -67,27 +67,32 @@ function getCatMeta(category) {
 
 // ==================== 剧情曲线图 ====================
 const DEFAULT_PLOT_POINTS = [
-    { label: '序幕', tension: 0.2 },
-    { label: '铺垫', tension: 0.35 },
-    { label: '冲突', tension: 0.6 },
-    { label: '高潮', tension: 0.95 },
-    { label: '结局', tension: 0.4 },
+    { label: '序幕', tension: 0.2, note: '' },
+    { label: '铺垫', tension: 0.35, note: '' },
+    { label: '冲突', tension: 0.6, note: '' },
+    { label: '高潮', tension: 0.95, note: '' },
+    { label: '结局', tension: 0.4, note: '' },
 ];
 
 function PlotCurveChart({ nodes, rootFolder, onSave }) {
-    const initData = rootFolder?.content?.plotCurve || DEFAULT_PLOT_POINTS;
+    const initData = (rootFolder?.content?.plotCurve || DEFAULT_PLOT_POINTS).map(p => ({ note: '', ...p }));
     const [points, setPoints] = useState(initData);
-    const [dragging, setDragging] = useState(null); // index
-    const [editIdx, setEditIdx] = useState(null);
+    const [dragging, setDragging] = useState(null); // index for tension drag
+    const [editIdx, setEditIdx] = useState(null); // label rename
     const [editLabel, setEditLabel] = useState('');
+    const [noteIdx, setNoteIdx] = useState(null); // note edit (double-click dot)
+    const [editNote, setEditNote] = useState('');
+    const [hoverIdx, setHoverIdx] = useState(null); // tooltip
     const [collapsed, setCollapsed] = useState(false);
+    const [selectedIdx, setSelectedIdx] = useState(null); // for delete
     const svgRef = useRef(null);
-    const W = 600, H = 200, PX = 50, PY = 28;
-    const chartW = W - PX * 2, chartH = H - PY * 2;
+    const W = 600, H = 220, PX = 50, PY = 28, LABEL_H = 30;
+    const chartH = H - PY * 2 - LABEL_H;
+    const chartW = W - PX * 2;
 
     useEffect(() => {
         const d = rootFolder?.content?.plotCurve;
-        if (d && Array.isArray(d)) setPoints(d);
+        if (d && Array.isArray(d)) setPoints(d.map(p => ({ note: '', ...p })));
     }, [rootFolder?.content?.plotCurve]);
 
     const coords = useMemo(() => points.map((p, i) => ({
@@ -104,13 +109,15 @@ function PlotCurveChart({ nodes, rootFolder, onSave }) {
 
     const areaPath = useMemo(() => {
         if (coords.length < 2) return '';
-        return `${smoothPath} L ${coords[coords.length - 1].x} ${H - PY} L ${coords[0].x} ${H - PY} Z`;
-    }, [smoothPath, coords]);
+        const baseY = PY + chartH;
+        return `${smoothPath} L ${coords[coords.length - 1].x} ${baseY} L ${coords[0].x} ${baseY} Z`;
+    }, [smoothPath, coords, chartH]);
 
     const handlePointerDown = (idx, e) => {
         e.preventDefault();
         e.stopPropagation();
         setDragging(idx);
+        setSelectedIdx(idx);
         const svg = svgRef.current;
         const onMove = (ev) => {
             if (!svg) return;
@@ -123,7 +130,6 @@ function PlotCurveChart({ nodes, rootFolder, onSave }) {
             setDragging(null);
             document.removeEventListener('pointermove', onMove);
             document.removeEventListener('pointerup', onUp);
-            // save
             setPoints(prev => { onSave?.(prev); return prev; });
         };
         document.addEventListener('pointermove', onMove);
@@ -131,24 +137,26 @@ function PlotCurveChart({ nodes, rootFolder, onSave }) {
     };
 
     const addPoint = () => {
-        const next = [...points, { label: `节点${points.length + 1}`, tension: 0.5 }];
+        const next = [...points, { label: `节点${points.length + 1}`, tension: 0.5, note: '' }];
         setPoints(next);
         onSave?.(next);
+        setSelectedIdx(next.length - 1);
     };
 
-    const removePoint = (idx) => {
-        if (points.length <= 2) return;
-        const next = points.filter((_, i) => i !== idx);
+    const removeSelected = () => {
+        if (selectedIdx === null || points.length <= 2) return;
+        const next = points.filter((_, i) => i !== selectedIdx);
         setPoints(next);
         onSave?.(next);
+        setSelectedIdx(null);
     };
 
-    const startEdit = (idx) => {
+    // 双击标签改名
+    const startLabelEdit = (idx) => {
         setEditIdx(idx);
         setEditLabel(points[idx].label);
     };
-
-    const finishEdit = () => {
+    const finishLabelEdit = () => {
         if (editIdx === null) return;
         const next = points.map((p, i) => i === editIdx ? { ...p, label: editLabel.trim() || p.label } : p);
         setPoints(next);
@@ -156,8 +164,89 @@ function PlotCurveChart({ nodes, rootFolder, onSave }) {
         setEditIdx(null);
     };
 
-    // 张力等级标签
+    // 双击节点改注释
+    const startNoteEdit = (idx) => {
+        setNoteIdx(idx);
+        setEditNote(points[idx].note || '');
+    };
+    const finishNoteEdit = () => {
+        if (noteIdx === null) return;
+        const next = points.map((p, i) => i === noteIdx ? { ...p, note: editNote.trim() } : p);
+        setPoints(next);
+        onSave?.(next);
+        setNoteIdx(null);
+    };
+
+    const [reorderDragIdx, setReorderDragIdx] = useState(null); // label drag reorder
+
     const tensionLabels = ['平缓', '低', '中', '高', '极高'];
+
+    // 左右拖拽名称排序
+    const handleLabelDragStart = (idx, e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        setReorderDragIdx(idx);
+        setSelectedIdx(idx);
+        const svg = svgRef.current;
+        if (!svg) return;
+        let currentIdx = idx;
+        const startX = e.clientX;
+        let hasMoved = false;
+
+        const onMove = (ev) => {
+            if (!svg) return;
+            const rect = svg.getBoundingClientRect();
+            // 死区：需要先移动超过 10px 才开始计算排序
+            if (!hasMoved) {
+                if (Math.abs(ev.clientX - startX) < 10) return;
+                hasMoved = true;
+            }
+            const svgX = (ev.clientX - rect.left) / rect.width * W;
+            setPoints(prev => {
+                const n = prev.length;
+                if (n < 2) return prev;
+                const gap = chartW / Math.max(n - 1, 1);
+                const currentX = PX + currentIdx * gap;
+                // 向右交换：鼠标越过当前和右邻居的中点
+                if (currentIdx < n - 1) {
+                    const mid = currentX + gap * 0.5;
+                    if (svgX > mid) {
+                        const next = [...prev];
+                        const [moved] = next.splice(currentIdx, 1);
+                        currentIdx = currentIdx + 1;
+                        next.splice(currentIdx, 0, moved);
+                        setReorderDragIdx(currentIdx);
+                        setSelectedIdx(currentIdx);
+                        return next;
+                    }
+                }
+                // 向左交换：鼠标越过当前和左邻居的中点
+                if (currentIdx > 0) {
+                    const mid = currentX - gap * 0.5;
+                    if (svgX < mid) {
+                        const next = [...prev];
+                        const [moved] = next.splice(currentIdx, 1);
+                        currentIdx = currentIdx - 1;
+                        next.splice(currentIdx, 0, moved);
+                        setReorderDragIdx(currentIdx);
+                        setSelectedIdx(currentIdx);
+                        return next;
+                    }
+                }
+                return prev;
+            });
+        };
+
+        const onUp = () => {
+            setReorderDragIdx(null);
+            document.removeEventListener('pointermove', onMove);
+            document.removeEventListener('pointerup', onUp);
+            setPoints(prev => { onSave?.(prev); return prev; });
+        };
+
+        document.addEventListener('pointermove', onMove);
+        document.addEventListener('pointerup', onUp);
+    };
 
     return (
         <div style={{
@@ -172,13 +261,13 @@ function PlotCurveChart({ nodes, rootFolder, onSave }) {
                 <span style={{ fontSize: 13, fontWeight: 700, color: 'var(--text-primary)', display: 'flex', alignItems: 'center', gap: 8 }}>
                     <ClipboardList size={14} style={{ color: '#ef4444' }} />
                     剧情节奏曲线
-                    <span style={{ fontSize: 11, fontWeight: 400, color: 'var(--text-muted)' }}>— 拖拽节点调整张力</span>
+                    <span style={{ fontSize: 11, fontWeight: 400, color: 'var(--text-muted)' }}>— 上下拖拽节点调整张力 · 左右拖拽名称排序 · 双击横轴名称改名 · 双击节点添加/修改注释</span>
                 </span>
                 <span style={{ fontSize: 10, color: 'var(--text-muted)', transform: collapsed ? 'rotate(-90deg)' : 'none', transition: 'transform 0.2s' }}>▼</span>
             </div>
             {!collapsed && (
-                <div style={{ padding: '0 18px 16px' }}>
-                    <svg ref={svgRef} viewBox={`0 0 ${W} ${H}`} style={{ width: '100%', height: 200, cursor: dragging !== null ? 'grabbing' : 'default' }}>
+                <div style={{ padding: '0 18px 16px', position: 'relative' }}>
+                    <svg ref={svgRef} viewBox={`0 0 ${W} ${H}`} style={{ width: '100%', height: 220, cursor: dragging !== null ? 'grabbing' : (reorderDragIdx !== null ? 'grabbing' : 'default') }}>
                         <defs>
                             <linearGradient id="plot-tension-grad" x1="0" y1="0" x2="0" y2="1">
                                 <stop offset="0%" stopColor="#ef4444" stopOpacity="0.18" />
@@ -201,65 +290,116 @@ function PlotCurveChart({ nodes, rootFolder, onSave }) {
                         {coords.length >= 2 && <path d={areaPath} fill="url(#plot-tension-grad)" />}
                         {/* Curve line */}
                         {coords.length >= 2 && <path d={smoothPath} fill="none" stroke="#ef4444" strokeWidth="2.5" strokeLinecap="round" />}
-                        {/* Points */}
+                        {/* Points + Labels */}
                         {coords.map((c, i) => (
                             <g key={i}>
                                 {/* Vertical guide line on drag */}
-                                {dragging === i && <line x1={c.x} y1={PY} x2={c.x} y2={H - PY} stroke="#ef4444" strokeWidth="1" strokeDasharray="3 3" opacity="0.4" />}
-                                {/* Draggable dot */}
+                                {dragging === i && <line x1={c.x} y1={PY} x2={c.x} y2={PY + chartH} stroke="#ef4444" strokeWidth="1" strokeDasharray="3 3" opacity="0.4" />}
+                                {/* Selected highlight */}
+                                {selectedIdx === i && dragging !== i && (
+                                    <circle cx={c.x} cy={c.y} r={10} fill="none" stroke="#ef4444" strokeWidth="1" strokeDasharray="3 2" opacity="0.4" />
+                                )}
+                                {/* Draggable dot — double-click to edit note */}
                                 <circle
-                                    cx={c.x} cy={c.y} r={dragging === i ? 7 : 5}
-                                    fill={dragging === i ? '#ef4444' : 'var(--bg-primary)'}
+                                    cx={c.x} cy={c.y} r={dragging === i ? 7 : (hoverIdx === i ? 6 : 5)}
+                                    fill={dragging === i ? '#ef4444' : (selectedIdx === i ? '#ef444430' : 'var(--bg-primary)')}
                                     stroke="#ef4444" strokeWidth="2.5"
-                                    style={{ cursor: 'grab', transition: dragging === i ? 'none' : 'r 0.15s' }}
+                                    style={{ cursor: 'grab', transition: dragging === i ? 'none' : 'all 0.15s' }}
                                     onPointerDown={(e) => handlePointerDown(i, e)}
+                                    onDoubleClick={(e) => { e.stopPropagation(); startNoteEdit(i); }}
+                                    onMouseEnter={() => setHoverIdx(i)}
+                                    onMouseLeave={() => setHoverIdx(null)}
                                 />
                                 {/* Tension value */}
                                 <text x={c.x} y={c.y - 12} textAnchor="middle" fill="#ef4444" fontSize="9.5" fontWeight="700" opacity={dragging === i ? 1 : 0.7}>
                                     {Math.round(points[i].tension * 100)}%
                                 </text>
-                                {/* Label */}
+                                {/* Label below — drag to reorder, double-click to rename */}
                                 {editIdx === i ? null : (
                                     <text
-                                        x={c.x} y={H - 5} textAnchor="middle" fill="var(--text-primary)" fontSize="10" fontWeight="600"
-                                        style={{ cursor: 'pointer' }}
-                                        onDoubleClick={() => startEdit(i)}
+                                        x={c.x} y={PY + chartH + 16} textAnchor="middle"
+                                        fill={reorderDragIdx === i ? '#ef4444' : 'var(--text-primary)'}
+                                        fontSize="10" fontWeight="600"
+                                        style={{ cursor: 'grab', userSelect: 'none' }}
+                                        opacity={reorderDragIdx !== null && reorderDragIdx !== i ? 0.4 : 1}
+                                        onPointerDown={(e) => handleLabelDragStart(i, e)}
+                                        onDoubleClick={() => startLabelEdit(i)}
                                     >
                                         {points[i].label}
                                     </text>
                                 )}
-                                {/* Delete button on hover (small × above dot) */}
-                                {points.length > 2 && (
-                                    <text
-                                        x={c.x + 10} y={c.y - 10} textAnchor="middle" fill="var(--text-muted)" fontSize="10"
-                                        style={{ cursor: 'pointer', opacity: 0.3 }}
-                                        onMouseEnter={e => { e.currentTarget.style.opacity = '1'; e.currentTarget.style.fill = '#ef4444'; }}
-                                        onMouseLeave={e => { e.currentTarget.style.opacity = '0.3'; e.currentTarget.style.fill = 'var(--text-muted)'; }}
-                                        onClick={() => removePoint(i)}
-                                    >×</text>
+                                {/* Note subtitle below label */}
+                                {points[i].note && editIdx !== i && (
+                                    <text x={c.x} y={PY + chartH + 27} textAnchor="middle" fill="var(--text-muted)" fontSize="8" opacity="0.8">
+                                        {points[i].note.length > 8 ? points[i].note.slice(0, 8) + '…' : points[i].note}
+                                    </text>
+                                )}
+                                {/* Hover tooltip for note */}
+                                {hoverIdx === i && points[i].note && (
+                                    <g>
+                                        <rect
+                                            x={c.x - Math.min(points[i].note.length * 5, 80)} y={c.y - 38}
+                                            width={Math.min(points[i].note.length * 10, 160)} height={18}
+                                            rx="4" fill="var(--text-primary)" opacity="0.88"
+                                        />
+                                        <text x={c.x} y={c.y - 25} textAnchor="middle" fill="var(--bg-primary)" fontSize="9" fontWeight="500">
+                                            {points[i].note}
+                                        </text>
+                                    </g>
                                 )}
                             </g>
                         ))}
                     </svg>
-                    {/* Inline label editor */}
+
+                    {/* 操作按钮行 */}
+                    <div style={{ display: 'flex', gap: 8, marginTop: 4, alignItems: 'center' }}>
+                        <button
+                            onClick={addPoint}
+                            style={{ padding: '5px 14px', border: '1px dashed var(--border-light)', borderRadius: 8, background: 'none', cursor: 'pointer', fontSize: 11, color: 'var(--text-muted)', transition: 'all 0.15s', display: 'flex', alignItems: 'center', gap: 4 }}
+                            onMouseEnter={e => { e.currentTarget.style.borderColor = '#ef4444'; e.currentTarget.style.color = '#ef4444'; }}
+                            onMouseLeave={e => { e.currentTarget.style.borderColor = 'var(--border-light)'; e.currentTarget.style.color = 'var(--text-muted)'; }}
+                        ><Plus size={12} /> 添加节点</button>
+                        <button
+                            onClick={removeSelected}
+                            disabled={selectedIdx === null || points.length <= 2}
+                            style={{
+                                padding: '5px 14px', border: '1px solid var(--border-light)', borderRadius: 8, background: 'none', cursor: selectedIdx !== null && points.length > 2 ? 'pointer' : 'not-allowed',
+                                fontSize: 11, color: selectedIdx !== null && points.length > 2 ? 'var(--text-muted)' : 'var(--border-light)', transition: 'all 0.15s', display: 'flex', alignItems: 'center', gap: 4,
+                                opacity: selectedIdx !== null && points.length > 2 ? 1 : 0.5,
+                            }}
+                            onMouseEnter={e => { if (selectedIdx !== null && points.length > 2) { e.currentTarget.style.borderColor = '#ef4444'; e.currentTarget.style.color = '#ef4444'; } }}
+                            onMouseLeave={e => { e.currentTarget.style.borderColor = 'var(--border-light)'; e.currentTarget.style.color = selectedIdx !== null && points.length > 2 ? 'var(--text-muted)' : 'var(--border-light)'; }}
+                        ><Trash2 size={11} /> 删除选中{selectedIdx !== null ? ` (${points[selectedIdx]?.label})` : ''}</button>
+                    </div>
+
+                    {/* 名称编辑 */}
                     {editIdx !== null && (
-                        <div style={{ display: 'flex', gap: 6, alignItems: 'center', marginTop: 4 }}>
+                        <div style={{ marginTop: 8, display: 'flex', gap: 6, alignItems: 'center' }}>
                             <input
                                 value={editLabel} onChange={e => setEditLabel(e.target.value)}
-                                onBlur={finishEdit} onKeyDown={e => { if (e.key === 'Enter') finishEdit(); if (e.key === 'Escape') setEditIdx(null); }}
+                                onKeyDown={e => { if (e.key === 'Enter') finishLabelEdit(); if (e.key === 'Escape') setEditIdx(null); }}
                                 autoFocus
-                                style={{ flex: 1, padding: '4px 8px', border: '1.5px solid #ef4444', borderRadius: 8, fontSize: 12, outline: 'none', background: 'var(--bg-secondary)', color: 'var(--text-primary)' }}
+                                style={{ flex: 1, padding: '4px 8px', border: '1.5px solid #ef4444', borderRadius: 6, fontSize: 12, outline: 'none', background: 'var(--bg-secondary)', color: 'var(--text-primary)' }}
                                 placeholder="节点名称"
                             />
+                            <button onClick={finishLabelEdit} style={{ padding: '4px 10px', border: 'none', borderRadius: 6, background: '#ef4444', color: '#fff', fontSize: 11, fontWeight: 600, cursor: 'pointer' }}>确定</button>
                         </div>
                     )}
-                    {/* Add point button */}
-                    <button
-                        onClick={addPoint}
-                        style={{ marginTop: 8, padding: '4px 12px', border: '1px dashed var(--border-light)', borderRadius: 8, background: 'none', cursor: 'pointer', fontSize: 11, color: 'var(--text-muted)', transition: 'all 0.15s' }}
-                        onMouseEnter={e => { e.currentTarget.style.borderColor = '#ef4444'; e.currentTarget.style.color = '#ef4444'; }}
-                        onMouseLeave={e => { e.currentTarget.style.borderColor = 'var(--border-light)'; e.currentTarget.style.color = 'var(--text-muted)'; }}
-                    >+ 添加节点</button>
+
+                    {/* 注释编辑 */}
+                    {noteIdx !== null && (
+                        <div style={{ marginTop: 8, display: 'flex', gap: 6, alignItems: 'center' }}>
+                            <span style={{ fontSize: 11, color: 'var(--text-muted)', flexShrink: 0 }}>「{points[noteIdx]?.label}」注释:</span>
+                            <input
+                                value={editNote} onChange={e => setEditNote(e.target.value)}
+                                onKeyDown={e => { if (e.key === 'Enter') finishNoteEdit(); if (e.key === 'Escape') setNoteIdx(null); }}
+                                autoFocus
+                                style={{ flex: 1, padding: '4px 8px', border: '1.5px solid #f59e0b', borderRadius: 6, fontSize: 12, outline: 'none', background: 'var(--bg-secondary)', color: 'var(--text-primary)' }}
+                                placeholder="主角出场、反转事件等"
+                            />
+                            <button onClick={finishNoteEdit} style={{ padding: '4px 10px', border: 'none', borderRadius: 6, background: '#f59e0b', color: '#fff', fontSize: 11, fontWeight: 600, cursor: 'pointer' }}>确定</button>
+                        </div>
+                    )}
                 </div>
             )}
         </div>

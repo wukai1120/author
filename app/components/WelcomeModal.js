@@ -5,7 +5,7 @@ import { useAppStore } from '../store/useAppStore';
 import { useI18n } from '../lib/useI18n';
 
 export default function WelcomeModal() {
-    const { language, setLanguage, visualTheme, setVisualTheme } = useAppStore();
+    const { language, setLanguage, visualTheme, setVisualTheme, setShowLoginModal } = useAppStore();
     const { t } = useI18n();
     const [step, setStep] = useState(1);
     const [isVisible, setIsVisible] = useState(false);
@@ -32,23 +32,34 @@ export default function WelcomeModal() {
 
     const handleSelectTheme = (theme) => {
         setVisualTheme(theme);
-        // Apply theme to document element immediately for preview
         document.documentElement.setAttribute('data-visual', theme);
     };
 
-    const handleStart = () => {
+    const handleGoToStep3 = () => {
         if (!visualTheme) {
             handleSelectTheme('warm');
         }
+        setStep(3);
+    };
+
+    const handleStart = () => {
         setIsVisible(false);
         if (!localStorage.getItem('author-onboarding-done')) {
             useAppStore.getState().setStartTour(true);
         }
     };
 
+    const handleLoginNow = () => {
+        setIsVisible(false);
+        if (!localStorage.getItem('author-onboarding-done')) {
+            useAppStore.getState().setStartTour(true);
+        }
+        setTimeout(() => setShowLoginModal(true), 300);
+    };
+
     return (
         <div className="welcome-modal-overlay">
-            <div className={`welcome-modal-container ${step === 2 ? 'step-2' : ''}`}>
+            <div className={`welcome-modal-container ${step === 2 ? 'step-2' : ''} ${step === 3 ? 'step-3' : ''}`}>
                 {/* Step 1: Language */}
                 {step === 1 && (
                     <div className="welcome-step fadeIn">
@@ -104,10 +115,68 @@ export default function WelcomeModal() {
                         <div className="welcome-actions">
                             <button
                                 className="btn btn-primary btn-large welcome-start-btn"
-                                onClick={handleStart}
+                                onClick={handleGoToStep3}
                                 disabled={!visualTheme}
                             >
-                                {t('welcome.startBtn')}
+                                {t('welcome.nextBtn') || '下一步'}
+                            </button>
+                        </div>
+                    </div>
+                )}
+
+                {/* Step 3: Cloud Sync */}
+                {step === 3 && (
+                    <div className="welcome-step fadeIn">
+                        <h1 className="welcome-title" style={{ marginBottom: 8 }}>
+                            {language === 'en' ? '☁️ Cloud Sync' : language === 'ru' ? '☁️ Облачная синхронизация' : '☁️ 开启云同步'}
+                        </h1>
+                        <p className="welcome-subtitle" style={{ marginBottom: 28 }}>
+                            {language === 'en'
+                                ? 'Sync your work across devices, never lose your creations.'
+                                : language === 'ru'
+                                    ? 'Синхронизируйте работу на разных устройствах.'
+                                    : '多设备无缝同步，创作永不丢失。'}
+                        </p>
+
+                        <div className="welcome-cloud-features">
+                            <div className="welcome-cloud-feature">
+                                <div className="welcome-cloud-feature-icon">☁️</div>
+                                <div>
+                                    <h4>{language === 'en' ? 'Auto Backup' : language === 'ru' ? 'Авто-резервирование' : '自动备份'}</h4>
+                                    <p>{language === 'en' ? 'Your manuscripts are safely stored in the cloud' : language === 'ru' ? 'Рукописи надёжно хранятся в облаке' : '作品安全存储在云端'}</p>
+                                </div>
+                            </div>
+
+                            <div className="welcome-cloud-feature">
+                                <div className="welcome-cloud-feature-icon">🔄</div>
+                                <div>
+                                    <h4>{language === 'en' ? 'Multi-device Sync' : language === 'ru' ? 'Мультиустройства' : '多端同步'}</h4>
+                                    <p>{language === 'en' ? 'Seamlessly continue on any device' : language === 'ru' ? 'Продолжайте на любом устройстве' : '在任何设备上无缝接续创作'}</p>
+                                </div>
+                            </div>
+
+                            <div className="welcome-cloud-feature">
+                                <div className="welcome-cloud-feature-icon" style={{ background: 'rgba(34, 197, 94, 0.1)' }}>✅</div>
+                                <div>
+                                    <h4>{language === 'en' ? 'Works Offline' : language === 'ru' ? 'Работает оффлайн' : '离线可用'}</h4>
+                                    <p>{language === 'en' ? 'Local-first, sync when online' : language === 'ru' ? 'Локально-первый подход' : '本地优先，联网时自动同步'}</p>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div className="welcome-actions" style={{ gap: 12 }}>
+                            <button
+                                className="btn btn-primary btn-large welcome-start-btn"
+                                onClick={handleLoginNow}
+                            >
+                                {language === 'en' ? 'Login / Register' : language === 'ru' ? 'Войти' : '立即登录'}
+                            </button>
+                            <button
+                                className="btn btn-ghost welcome-skip-btn"
+                                onClick={handleStart}
+                                style={{ fontSize: 14, padding: '8px 24px' }}
+                            >
+                                {language === 'en' ? 'Skip for now' : language === 'ru' ? 'Пропустить' : '稍后再说'}
                             </button>
                         </div>
                     </div>

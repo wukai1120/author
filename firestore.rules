@@ -1,0 +1,24 @@
+rules_version = '2';
+
+// Author — Firestore 安全规则
+// 原则：用户只能读写自己的数据
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // 用户数据（作品、设定、配置）
+    match /users/{userId}/data/{key} {
+      allow read, write: if request.auth != null && request.auth.uid == userId;
+    }
+
+    // 阶段5 预留：引擎世界状态
+    match /users/{userId}/engine/{worldId}/{document=**} {
+      allow read, write: if request.auth != null && request.auth.uid == userId;
+    }
+
+    // 默认拒绝所有其他访问
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}

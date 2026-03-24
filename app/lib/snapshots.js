@@ -1,16 +1,19 @@
 import { persistGet, persistSet } from './persistence';
 import { getChapters, saveChapters } from './storage';
 import { getSettingsNodes, saveSettingsNodes, getActiveWorkId } from './settings';
+import { get, set } from 'idb-keyval';
 
 const SNAPSHOTS_KEY = 'author-snapshots';
+const CLOUD_SNAPSHOT_KEY = 'author-snapshot-latest'; // 云端仅保留最新一次
 
 /**
- * 获取所有快照
+ * 获取所有快照（从本地 IndexedDB 读取，不走云同步）
  * @returns {Promise<Array>} 快照列表（按时间倒序）
  */
 export async function getSnapshots() {
     try {
-        const snapshots = await persistGet(SNAPSHOTS_KEY);
+        // 优先从 IndexedDB 读取（本地存储，不同步到云端）
+        const snapshots = await get(SNAPSHOTS_KEY);
         return Array.isArray(snapshots) ? snapshots : [];
     } catch (e) {
         console.error('Failed to get snapshots:', e);
@@ -57,7 +60,23 @@ export async function createSnapshot(label, type = 'auto') {
             finalSnapshots = existing.filter(s => !toRemove.includes(s.id));
         }
 
-        await persistSet(SNAPSHOTS_KEY, finalSnapshots);
+        // 保存到本地 IndexedDB（不走 persistSet，避免同步到云端）
+        await set(SNAPSHOTS_KEY, finalSnapshots);
+
+        // 仅将最新一次快照同步到云端（轻量元数据 + 数据）
+        try {
+            await persistSet(CLOUD_SNAPSHOT_KEY, {
+                id: snapshot.id,
+                timestamp: snapshot.timestamp,
+                label: snapshot.label,
+                type: snapshot.type,
+                stats: snapshot.stats,
+                data: snapshot.data,
+            });
+        } catch {
+            // 云同步失败不影响本地
+        }
+
         return snapshot;
     } catch (e) {
         console.error('Failed to create snapshot:', e);
@@ -96,6 +115,6 @@ export async function restoreSnapshot(snapshotId) {
 export async function deleteSnapshot(snapshotId) {
     const snapshots = await getSnapshots();
     const remaining = snapshots.filter(s => s.id !== snapshotId);
-    await persistSet(SNAPSHOTS_KEY, remaining);
+    await set(SNAPSHOTS_KEY, remaining);
     return remaining;
 }

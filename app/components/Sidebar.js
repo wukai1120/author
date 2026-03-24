@@ -9,7 +9,7 @@ import { exportProject, importProject, importWork, exportWorkAsTxt, exportWorkAs
 import { WRITING_MODES, getAllWorks, getSettingsNodes, addWork, saveSettingsNodes, setActiveWorkId as setActiveWorkIdSetting, getActiveWorkId } from '../lib/settings';
 import { detectConflicts, mergeChapters } from '../lib/chapter-number';
 import { estimateTokens } from '../lib/context-engine';
-import { Settings, Moon, Sun, History, Save, FolderOpen, FileDown, BookOpen, HelpCircle, Github, PanelLeftClose, ListOrdered, Library, Plus, FileText, FileType, BookMarked, FileOutput, Printer, Book, X, MoreHorizontal, ChevronUp, KeyRound, SlidersHorizontal, Eye, Smartphone, Clapperboard } from 'lucide-react';
+import { Settings, Moon, Sun, History, Save, FolderOpen, FileDown, BookOpen, HelpCircle, Github, PanelLeftClose, ListOrdered, Library, Plus, FileText, FileType, BookMarked, FileOutput, Printer, Book, X, MoreHorizontal, ChevronUp, KeyRound, SlidersHorizontal, Eye, Smartphone, Clapperboard, Cloud, CloudOff, RefreshCw } from 'lucide-react';
 import Tooltip from './ui/Tooltip';
 import IconButton from './ui/IconButton';
 import SettingsCategoryPanel, { getCategoryIcon, getCategoryColor, getCategoryLabel, getIconByName } from './SettingsCategoryPanel';
@@ -111,6 +111,25 @@ export default function Sidebar({ onOpenHelp, onToggle, editorRef, pushMode }) {
     const [dragOverPos, setDragOverPos] = useState(null); // 'top' | 'bottom'
     const [activeVolumeId, setActiveVolumeId] = useState(null); // 当前选中的分卷
     const { t } = useI18n();
+
+    // ---- 云同步状态（侧栏图标指示） ----
+    const [cloudAuthUser, setCloudAuthUser] = useState(null);
+    const [cloudSyncStatus, setCloudSyncStatus] = useState(null);
+    useEffect(() => {
+        let unmounted = false;
+        (async () => {
+            try {
+                const { isFirebaseConfigured } = await import('../lib/firebase');
+                if (!isFirebaseConfigured || unmounted) return;
+                const { onAuthChange, initAuth } = await import('../lib/auth');
+                const { onSyncStatusChange } = await import('../lib/firestore-sync');
+                initAuth();
+                onAuthChange(user => { if (!unmounted) setCloudAuthUser(user); });
+                onSyncStatusChange(status => { if (!unmounted) setCloudSyncStatus(status); });
+            } catch { /* Firebase 未配置 */ }
+        })();
+        return () => { unmounted = true; };
+    }, []);
 
     // 加载分类自定义图标（当 settingsVersion 变化时刷新）
     useEffect(() => {
@@ -706,6 +725,34 @@ export default function Sidebar({ onOpenHelp, onToggle, editorRef, pushMode }) {
                                 document.body
                             )}
                         </div>
+                        
+                        {/* 云同步快捷入口 */}
+                        <IconButton
+                            icon={!cloudAuthUser ? <CloudOff size={18} />
+                                : cloudSyncStatus?.syncing ? <RefreshCw size={18} className="spin" />
+                                : <Cloud size={18} />}
+                            label={cloudAuthUser
+                                ? (cloudSyncStatus?.syncing ? '同步中...'
+                                    : cloudSyncStatus?.pending > 0 ? `${cloudSyncStatus.pending} 项待同步 · 点击立即同步`
+                                    : cloudSyncStatus?.idle ? '自动同步已暂停 · 点击立即同步'
+                                    : cloudSyncStatus?.lastSync ? `已同步 · ${new Date(cloudSyncStatus.lastSync).toLocaleTimeString()}`
+                                    : '点击立即同步')
+                                : '点击登录，开启云同步'}
+                            text={sidebarOpen ? '同步' : undefined}
+                            tooltipSide="right"
+                            onClick={async () => {
+                                if (!cloudAuthUser) {
+                                    useAppStore.getState().setShowLoginModal(true);
+                                    return;
+                                }
+                                // 已登录：点击触发手动同步
+                                try {
+                                    const { flushSync } = await import('../lib/firestore-sync');
+                                    await flushSync();
+                                } catch {}
+                            }}
+                            className={`nav-item${cloudAuthUser ? ' nav-cloud-active' : ''}`}
+                        />
                         
                         {/* 更多操作下拉（仅保留帮助和社区） */}
                         <div ref={moreMenuAnchorRef} style={{ width: '100%', display: 'flex', justifyContent: 'center' }}>
