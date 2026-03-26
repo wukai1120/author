@@ -5,6 +5,7 @@
     "selectLang": "Select Language",
     "selectTheme": "Choose Your Workspace Theme",
     "startBtn": "Enter Workspace",
+    "nextBtn": "Next",
     "themeWarm": {
       "name": "Warm Classic",
       "desc": "A cozy, paper-like aesthetic that reduces eye strain."

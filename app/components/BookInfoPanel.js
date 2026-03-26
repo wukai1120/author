@@ -592,7 +592,7 @@ export default function BookInfoPanel() {
         saveTimerRef.current = setTimeout(() => {
             const cur = { ...latestBookDataRef.current, [field]: value };
             if (bookInfoNode) {
-                updateSettingsNode(bookInfoNode.id, { content: cur }, nodes.map(n => n.id === bookInfoNode.id ? { ...n, content: cur } : n));
+                updateSettingsNode(bookInfoNode.id, { content: cur }, nodes.map(n => n.id === bookInfoNode.id ? { ...n, content: cur } : n), selectedWorkId);
             }
             // 同步持久化作品名称
             if (field === 'title' && selectedWorkId && value) {
@@ -1329,7 +1329,7 @@ export default function BookInfoPanel() {
                                                 setNewGoalText('');
                                                 if (bookInfoNode) {
                                                     const updated = { ...bookData, goals: next };
-                                                    updateSettingsNode(bookInfoNode.id, { content: updated });
+                                                    updateSettingsNode(bookInfoNode.id, { content: updated }, null, selectedWorkId);
                                                     setBookData(updated);
                                                 }
                                             }
@@ -1351,7 +1351,7 @@ export default function BookInfoPanel() {
                                             setNewGoalText('');
                                             if (bookInfoNode) {
                                                 const updated = { ...bookData, goals: next };
-                                                updateSettingsNode(bookInfoNode.id, { content: updated });
+                                                updateSettingsNode(bookInfoNode.id, { content: updated }, null, selectedWorkId);
                                                 setBookData(updated);
                                             }
                                         }}
@@ -1386,7 +1386,7 @@ export default function BookInfoPanel() {
                                                     setGoals(next);
                                                     if (bookInfoNode) {
                                                         const updated = { ...bookData, goals: next };
-                                                        updateSettingsNode(bookInfoNode.id, { content: updated });
+                                                        updateSettingsNode(bookInfoNode.id, { content: updated }, null, selectedWorkId);
                                                         setBookData(updated);
                                                     }
                                                 }}
@@ -1416,7 +1416,7 @@ export default function BookInfoPanel() {
                                                         setGoals(next);
                                                         if (bookInfoNode) {
                                                             const updated = { ...bookData, goals: next };
-                                                            updateSettingsNode(bookInfoNode.id, { content: updated });
+                                                            updateSettingsNode(bookInfoNode.id, { content: updated }, null, selectedWorkId);
                                                             setBookData(updated);
                                                         }
                                                     }}
@@ -1458,7 +1458,7 @@ export default function BookInfoPanel() {
                     setBookData(prev => {
                         const next = { ...prev, coverImage: croppedDataUrl };
                         if (bookInfoNode) {
-                            updateSettingsNode(bookInfoNode.id, { content: next }, nodes.map(n => n.id === bookInfoNode.id ? { ...n, content: next } : n));
+                            updateSettingsNode(bookInfoNode.id, { content: next }, nodes.map(n => n.id === bookInfoNode.id ? { ...n, content: next } : n), selectedWorkId);
                         }
                         return next;
                     });

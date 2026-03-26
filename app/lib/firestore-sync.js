@@ -32,7 +32,12 @@ export function onSyncStatusChange(callback) {
 }
 
 function notifySyncStatus(status) {
-    if (_syncStatusCallback) _syncStatusCallback(status);
+    if (_syncStatusCallback) {
+        _syncStatusCallback({
+            ...status,
+            keys: Array.from(_pendingWrites.keys())
+        });
+    }
 }
 
 // ==================== 读写接口 ====================

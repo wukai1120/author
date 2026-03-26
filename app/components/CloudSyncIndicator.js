@@ -127,7 +127,23 @@ export default function CloudSyncIndicator() {
                                 {syncStatus.syncing ? (
                                     <><RefreshCw size={12} className="spin" /> 正在同步...</>
                                 ) : syncStatus.pending > 0 ? (
-                                    <>{syncStatus.pending} 项待同步</>
+                                    <div style={{ display: 'flex', flexDirection: 'column', gap: 6, width: '100%' }}>
+                                        <div>{syncStatus.pending} 项待同步</div>
+                                        {syncStatus.keys && syncStatus.keys.length > 0 && (
+                                            <div style={{
+                                                maxHeight: 120, overflowY: 'auto',
+                                                fontSize: 11, color: 'var(--text-muted)',
+                                                background: 'var(--bg-primary)', padding: '6px 8px',
+                                                borderRadius: 6, display: 'flex', flexDirection: 'column', gap: 4
+                                            }}>
+                                                {syncStatus.keys.map(k => (
+                                                    <div key={k} style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }} title={k}>
+                                                        • {k}
+                                                    </div>
+                                                ))}
+                                            </div>
+                                        )}
+                                    </div>
                                 ) : syncStatus.lastSync ? (
                                     <><CheckCircle2 size={12} style={{ color: '#22c55e' }} /> 上次同步: {new Date(syncStatus.lastSync).toLocaleTimeString()}</>
                                 ) : (

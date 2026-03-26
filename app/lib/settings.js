@@ -540,6 +540,12 @@ function getDefaultWorkNodes(workId) {
             });
         }
     });
+    // Ensure bookInfo special node is always created
+    nodes.push({
+        id: `${wid}-bookInfo`, name: '作品信息', type: 'special', category: 'bookInfo',
+        parentId: wid, order: -1, icon: 'BookOpen', content: { title: '', genre: '', synopsis: '', style: '', tone: '', targetAudience: '', pov: '' },
+        collapsed: false, createdAt: now, updatedAt: now,
+    });
     return nodes;
 }
 
@@ -694,7 +700,21 @@ export async function getSettingsNodes(workId) {
         const repaired = repairOrphanedRootFolders(nodes, wid);
         // 为已有分类补充预设子文件夹
         const patched = ensurePresetSubFolders(nodes, wid);
-        if (repaired || patched) {
+        // 确保 bookInfo 节点存在（兼容老数据）
+        let biNode = nodes.find(n => n.category === 'bookInfo' && n.type === 'special');
+        let biPatched = false;
+        if (!biNode) {
+            nodes.push({
+                id: Date.now().toString(36) + Math.random().toString(36).substr(2, 6),
+                name: '作品信息', type: 'special', category: 'bookInfo',
+                parentId: wid, order: -1, icon: 'BookOpen',
+                content: { title: '', genre: '', synopsis: '', style: '', tone: '', targetAudience: '', pov: '' },
+                collapsed: false, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(),
+            });
+            biPatched = true;
+        }
+
+        if (repaired || patched || biPatched) {
             await persistSet(getNodesKey(wid), nodes);
         }
         return nodes;
@@ -862,8 +882,9 @@ export async function addSettingsNode({ name, type, category, parentId, icon, co
 // Embedding 防抖定时器 — 避免每次编辑都触发 embedding API 调用
 const _embeddingTimers = {};
 
-export async function updateSettingsNode(id, updates, currentNodes) {
-    const nodes = currentNodes || await getSettingsNodes();
+export async function updateSettingsNode(id, updates, currentNodes, workId) {
+    const targetWorkId = workId || getActiveWorkId() || 'work-default';
+    const nodes = currentNodes || await getSettingsNodes(targetWorkId);
     const idx = nodes.findIndex(n => n.id === id);
     if (idx === -1) return null;
     const isProtected = GLOBAL_ROOT_CATEGORIES.some(c => c.id === id) ||
@@ -877,7 +898,7 @@ export async function updateSettingsNode(id, updates, currentNodes) {
 
     // 先立即保存内容（不等 embedding），确保数据不丢失
     nodes[idx] = { ...nodes[idx], ...updates, updatedAt: new Date().toISOString() };
-    await saveSettingsNodes(nodes);
+    await saveSettingsNodes(nodes, targetWorkId);
 
     // 如果名称或内容发生改变，且是条目，且开启了嵌入功能，延迟计算 embedding
     // 使用 3 秒防抖，避免输入过程中频繁调用 embedding API
@@ -889,14 +910,14 @@ export async function updateSettingsNode(id, updates, currentNodes) {
             try {
                 delete _embeddingTimers[id];
                 // 重新读取最新节点数据来计算 embedding
-                const freshNodes = await getSettingsNodes();
+                const freshNodes = await getSettingsNodes(targetWorkId);
                 const freshIdx = freshNodes.findIndex(n => n.id === id);
                 if (freshIdx === -1) return;
                 const textToEmbed = extractTextForEmbedding(freshNodes[freshIdx]);
                 const embedding = await getEmbedding(textToEmbed, apiConfig);
                 if (embedding) {
                     freshNodes[freshIdx] = { ...freshNodes[freshIdx], embedding };
-                    await saveSettingsNodes(freshNodes);
+                    await saveSettingsNodes(freshNodes, targetWorkId);
                 }
             } catch (e) {
                 console.warn('[Settings] Deferred embedding failed for node', id, e);

@@ -159,9 +159,11 @@ export async function persistSet(key, value) {
     }
 
     // 3. Firebase 云同步（去抖队列，5分钟批量写入）
-    const sync = await ensureFirebase();
-    if (sync && isFirebaseSignedIn()) {
-        sync.firestoreEnqueue(key, value);
+    if (isSyncableKey(key)) {
+        const sync = await ensureFirebase();
+        if (sync && isFirebaseSignedIn()) {
+            sync.firestoreEnqueue(key, value);
+        }
     }
 }
 
@@ -179,9 +181,11 @@ export async function persistDel(key) {
     }
 
     // Firebase 删除
-    const sync = await ensureFirebase();
-    if (sync && isFirebaseSignedIn()) {
-        sync.firestoreDel(key).catch(() => { });
+    if (isSyncableKey(key)) {
+        const sync = await ensureFirebase();
+        if (sync && isFirebaseSignedIn()) {
+            sync.firestoreDel(key).catch(() => { });
+        }
     }
 }
 
@@ -201,6 +205,16 @@ const LOCALSTORAGE_KEYS = new Set([
     'author-delete-never-remind',
     'author-delete-skip-today',
 ]);
+
+// 判断某个 key 是否应该同步到云端
+function isSyncableKey(key) {
+    if (key === 'author-project-settings') return true; // 全局设置需要同步
+    // 本地特有的配置或缓存状态不应该同步到云端（尤其是 API Keys！）
+    if (LOCALSTORAGE_KEYS.has(key)) return false;
+    // 备份类数据不要同步到云端
+    if (key.includes('backup')) return false;
+    return true;
+}
 
 async function browserGet(key) {
     if (LOCALSTORAGE_KEYS.has(key)) {

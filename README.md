@@ -286,9 +286,10 @@ This project was built with the help of the following AI partners:
 |------|------|
 | [Google Antigravity](https://antigravity.google/) | AI-powered IDE — the development platform for this project |
 | [Claude Opus 4.6](https://www.anthropic.com/) (Thinking) | Primary coding assistant — architecture, implementation, debugging |
-| [Gemini 3 Pro](https://deepmind.google/technologies/gemini/) (High) | UI review, screenshot analysis, design iteration |
+| [Gemini 3.1 Pro](https://deepmind.google/technologies/gemini/) (High) | UI review, screenshot analysis, design iteration |
 | [Gemini 3 Flash](https://deepmind.google/technologies/gemini/) | Built-in browser automation tool |
 | [Chrome DevTools MCP](https://developer.chrome.com/) | Browser testing, performance analysis, DOM inspection |
+| [Firebase MCP](https://firebase.google.com/) | Cloud database management, security rules validation, project config |
 | [GitHub MCP](https://github.com/) | Repository management, PR reviews, code search |
 
 ### 📦 Open Source

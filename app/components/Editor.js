@@ -44,6 +44,7 @@ const PAGE_GAP = 24;      // 页间灰色间隙
 const Editor = forwardRef(function Editor({ content, chapterId, onUpdate, editable = true, onAiRequest, onArchiveGeneration, contextItems, contextSelection, setContextSelection }, ref) {
     const clipPathId = useId();
     const debounceRef = useRef(null);
+    const isLoadingContentRef = useRef(false);
     const contentRef = useRef(null);
 
     // 页数状态
@@ -135,6 +136,8 @@ const Editor = forwardRef(function Editor({ content, chapterId, onUpdate, editab
             },
         },
         onUpdate: ({ editor }) => {
+            // 跳过程序化 setContent 触发的 onUpdate（章节/作品切换）
+            if (isLoadingContentRef.current) return;
             if (debounceRef.current) clearTimeout(debounceRef.current);
             debounceRef.current = setTimeout(() => {
                 const html = editor.getHTML();
@@ -154,12 +157,19 @@ const Editor = forwardRef(function Editor({ content, chapterId, onUpdate, editab
         if (!editor || content === undefined) return;
 
         if (prevChapterIdRef.current !== chapterId) {
-            // 章节切换：直接设置新内容 + 清空撤销历史
+            // 章节切换：清理旧防抖定时器，防止旧章节的延迟保存触发
+            if (debounceRef.current) {
+                clearTimeout(debounceRef.current);
+                debounceRef.current = null;
+            }
             prevChapterIdRef.current = chapterId;
+            // 设置静默标记，阻止 setContent 触发 onUpdate → saveChapters
+            isLoadingContentRef.current = true;
             editor.commands.setContent(content || '', false);
             // 清空撤销历史，避免跨章节 undo
             const { tr } = editor.state;
             editor.view.dispatch(tr.setMeta('addToHistory', false));
+            isLoadingContentRef.current = false;
             // 滚动到顶部
             const container = document.querySelector('.editor-container');
             if (container) container.scrollTop = 0;
@@ -170,7 +180,9 @@ const Editor = forwardRef(function Editor({ content, chapterId, onUpdate, editab
         const currentHtml = editor.getHTML();
         if (content !== currentHtml) {
             if (Math.abs(content.length - currentHtml.length) > 50 || !currentHtml.includes(content.substring(0, 50))) {
+                isLoadingContentRef.current = true;
                 editor.commands.setContent(content || '', false);
+                isLoadingContentRef.current = false;
             }
         }
     }, [content, chapterId, editor]);

@@ -92,7 +92,9 @@ export default function Sidebar({ onOpenHelp, onToggle, editorRef, pushMode }) {
     const [conflictModal, setConflictModal] = useState(null);
     const [showGitPopup, setShowGitPopup] = useState(false);
     const [showMoreMenu, setShowMoreMenu] = useState(false); // "更多操作" 下拉菜单
+    const [showSyncMenu, setShowSyncMenu] = useState(false); // 云同步下拉菜单
     const moreMenuAnchorRef = useRef(null);
+    const syncMenuAnchorRef = useRef(null);
     const [activeNavTab, setActiveNavTab] = useState('chapters'); // 'chapters' | 'character' | 'location' | 'world' | 'object' | 'plot' | 'rules'
     const [showCategoryPopover, setShowCategoryPopover] = useState(false);
     const categoryPopoverAnchorRef = useRef(null);
@@ -727,32 +729,87 @@ export default function Sidebar({ onOpenHelp, onToggle, editorRef, pushMode }) {
                         </div>
                         
                         {/* 云同步快捷入口 */}
-                        <IconButton
-                            icon={!cloudAuthUser ? <CloudOff size={18} />
-                                : cloudSyncStatus?.syncing ? <RefreshCw size={18} className="spin" />
-                                : <Cloud size={18} />}
-                            label={cloudAuthUser
-                                ? (cloudSyncStatus?.syncing ? '同步中...'
-                                    : cloudSyncStatus?.pending > 0 ? `${cloudSyncStatus.pending} 项待同步 · 点击立即同步`
-                                    : cloudSyncStatus?.idle ? '自动同步已暂停 · 点击立即同步'
-                                    : cloudSyncStatus?.lastSync ? `已同步 · ${new Date(cloudSyncStatus.lastSync).toLocaleTimeString()}`
-                                    : '点击立即同步')
-                                : '点击登录，开启云同步'}
-                            text={sidebarOpen ? '同步' : undefined}
-                            tooltipSide="right"
-                            onClick={async () => {
-                                if (!cloudAuthUser) {
-                                    useAppStore.getState().setShowLoginModal(true);
-                                    return;
-                                }
-                                // 已登录：点击触发手动同步
-                                try {
-                                    const { flushSync } = await import('../lib/firestore-sync');
-                                    await flushSync();
-                                } catch {}
-                            }}
-                            className={`nav-item${cloudAuthUser ? ' nav-cloud-active' : ''}`}
-                        />
+                        <div ref={syncMenuAnchorRef} style={{ width: '100%', display: 'flex', justifyContent: 'center' }}>
+                            <IconButton
+                                icon={!cloudAuthUser ? <CloudOff size={18} />
+                                    : cloudSyncStatus?.syncing ? <RefreshCw size={18} className="spin" />
+                                    : <Cloud size={18} />}
+                                label={cloudAuthUser
+                                    ? (cloudSyncStatus?.syncing ? '同步中...'
+                                        : cloudSyncStatus?.pending > 0 ? `${cloudSyncStatus.pending} 项待同步`
+                                        : cloudSyncStatus?.idle ? '自动同步已暂停'
+                                        : cloudSyncStatus?.lastSync ? `已同步 · ${new Date(cloudSyncStatus.lastSync).toLocaleTimeString()}`
+                                        : '云同步')
+                                    : '点击登录，开启云同步'}
+                                text={sidebarOpen ? '同步' : undefined}
+                                tooltipSide="right"
+                                onClick={async () => {
+                                    if (!cloudAuthUser) {
+                                        useAppStore.getState().setShowLoginModal(true);
+                                        return;
+                                    }
+                                    // 已登录：点击展开状态面板
+                                    setShowSyncMenu(!showSyncMenu);
+                                }}
+                                className={`nav-item${cloudAuthUser ? ' nav-cloud-active' : ''}`}
+                            />
+                            {showSyncMenu && createPortal(
+                                <>
+                                    <div style={{ position: 'fixed', inset: 0, zIndex: 9990 }} onClick={() => setShowSyncMenu(false)} />
+                                    <div style={{
+                                        position: 'fixed',
+                                        left: syncMenuAnchorRef.current ? syncMenuAnchorRef.current.getBoundingClientRect().right + 8 : 0,
+                                        top: syncMenuAnchorRef.current ? Math.min(syncMenuAnchorRef.current.getBoundingClientRect().top, window.innerHeight - 200) : 0,
+                                        minWidth: 220, zIndex: 9991,
+                                        background: 'var(--bg-card)', border: '1px solid var(--border-light)',
+                                        borderRadius: 'var(--radius-md)', boxShadow: 'var(--shadow-lg)', padding: 4,
+                                    }}>
+                                        <div style={{ padding: '8px 12px', fontSize: 13, fontWeight: 500, color: 'var(--text-color)', borderBottom: '1px solid var(--border-light)', marginBottom: 4 }}>
+                                            云同步状态
+                                        </div>
+                                        <div style={{ padding: '4px 12px', fontSize: 12, color: 'var(--text-muted)', marginBottom: 8 }}>
+                                            {cloudSyncStatus?.syncing ? '正在同步中...'
+                                            : cloudSyncStatus?.pending > 0 ? `有 ${cloudSyncStatus.pending} 项更改等待同步`
+                                            : cloudSyncStatus?.idle ? '自动同步已暂停，等待网络恢复'
+                                            : cloudSyncStatus?.lastSync ? `最后同步于 ${new Date(cloudSyncStatus.lastSync).toLocaleTimeString()}`
+                                            : '已准备就绪'}
+                                        </div>
+                                        {cloudSyncStatus?.pending > 0 && Array.isArray(cloudSyncStatus?.keys) && cloudSyncStatus.keys.length > 0 && (
+                                            <div style={{ padding: '0 12px', marginBottom: 8 }}>
+                                                <div style={{ fontSize: 11, color: 'var(--text-muted)', marginBottom: 4 }}>待同步队列：</div>
+                                                <div style={{
+                                                    maxHeight: 120, overflowY: 'auto', 
+                                                    background: 'var(--bg-base)', borderRadius: 4, 
+                                                    padding: '6px', fontSize: 11, color: 'var(--text-secondary)',
+                                                    fontFamily: 'monospace', wordBreak: 'break-all',
+                                                    border: '1px solid var(--border-light)'
+                                                }}>
+                                                    {cloudSyncStatus.keys.map(k => (
+                                                        <div key={k} style={{ padding: '2px 0' }}>• {k}</div>
+                                                    ))}
+                                                </div>
+                                            </div>
+                                        )}
+                                        <button 
+                                            className="btn btn-primary" 
+                                            style={{ width: 'calc(100% - 8px)', margin: '4px', justifyContent: 'center', fontSize: 12, padding: '6px 0' }}
+                                            onClick={async () => {
+                                                setShowSyncMenu(false);
+                                                try {
+                                                    const { flushSync } = await import('../lib/firestore-sync');
+                                                    await flushSync();
+                                                } catch {}
+                                            }}
+                                            disabled={cloudSyncStatus?.syncing}
+                                        >
+                                            <RefreshCw size={14} className={cloudSyncStatus?.syncing ? 'spin' : ''} style={{ marginRight: 6 }} />
+                                            立即同步
+                                        </button>
+                                    </div>
+                                </>,
+                                document.body
+                            )}
+                        </div>
                         
                         {/* 更多操作下拉（仅保留帮助和社区） */}
                         <div ref={moreMenuAnchorRef} style={{ width: '100%', display: 'flex', justifyContent: 'center' }}>
