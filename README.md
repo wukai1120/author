@@ -1,4 +1,4 @@
-**English** | [简体中文](README.zh.md)
+**English** | [简体中文](README.zh.md) | [Русский](README.ru.md) | [العربية](README.ar.md)
 
 # ✍️ Author — AI-Powered Creative Writing Platform
 
@@ -329,21 +329,31 @@ This project is licensed under [AGPL-3.0](LICENSE).
 
 ## 🙏 Acknowledgments
 
-### 🤖 AI Partners
-This project was built with the help of the following AI partners:
-
+### 🤖 AI Companions
 | Name | Role |
 |------|------|
-| [Google Antigravity](https://antigravity.google/) | AI-powered IDE — the development platform for this project |
 | [Claude Opus 4.6](https://www.anthropic.com/) (Thinking) | Primary coding assistant — architecture, implementation, debugging |
 | [Gemini 3.1 Pro](https://deepmind.google/technologies/gemini/) (High) | UI review, screenshot analysis, design iteration |
 | [Gemini 3 Flash](https://deepmind.google/technologies/gemini/) | Built-in browser automation tool |
-| [Chrome DevTools MCP](https://developer.chrome.com/) | Browser testing, performance analysis, DOM inspection |
-| [Firebase MCP](https://firebase.google.com/) | Cloud database management, security rules validation, project config |
-| [GitHub MCP](https://github.com/) | Repository management, PR reviews, code search |
 
-### 📦 Open Source
-- [Tiptap](https://tiptap.dev/) — Editor framework
+### 🛠️ AI Programming IDE
+- [Antigravity](https://antigravity.google/) — Powerful AI-driven IDE handling full-stack development
+
+### 🔌 MCP Tools
+- [Chrome DevTools MCP](https://developer.chrome.com/) — Browser testing, performance analysis, DOM inspection
+- [Firebase MCP](https://firebase.google.com/) — Cloud database management, security rules validation, project config
+- [GitHub MCP](https://github.com/) — Repository management, automated releases, code search
+
+### ☁️ Backend & Database
+- [Firebase Firestore](https://firebase.google.com/docs/firestore) — Multi-device cloud synchronization, NoSQL data storage
+- [Firebase Hosting / Vercel](https://vercel.com/) — Full-stack deployment and hosting
+
+### 📦 Frontend & Open Source
 - [Next.js](https://nextjs.org/) — React full-stack framework
+- [Tiptap](https://tiptap.dev/) — Core editor framework
 - [Zustand](https://zustand-demo.pmnd.rs/) — State management
 - [KaTeX](https://katex.org/) — Math rendering
+
+### 🔤 Typography
+- [LXGW WenKai (霞鹜文楷)](https://github.com/lxgw/LxgwWenKai) — Elegant local Chinese reading font
+- [Inter](https://fonts.google.com/specimen/Inter) — Clean UI English font

@@ -1,4 +1,4 @@
-[English](README.md) | **简体中文**
+[English](README.md) | **简体中文** | [Русский](README.ru.md) | [العربية](README.ar.md)
 
 # ✍️ Author — AI-Powered Creative Writing Platform
 
@@ -495,20 +495,30 @@ Author 支持从多种格式导入设定集：**JSON / Markdown / TXT / DOCX / P
 ## 🙏 致谢
 
 ### 🤖 AI 伙伴
-本项目在以下 AI 伙伴的辅助下开发：
-
 | 名称 | 作用 |
 |------|------|
-| [Google Antigravity](https://antigravity.google/) | AI 驱动的 IDE — 本项目的开发平台 |
 | [Claude Opus 4.6](https://www.anthropic.com/)（Thinking） | 主力编程助手 — 架构设计、功能实现、调试 |
 | [Gemini 3.1 Pro](https://deepmind.google/technologies/gemini/)（High） | UI 审查、截图分析、设计迭代 |
 | [Gemini 3 Flash](https://deepmind.google/technologies/gemini/) | 内置浏览器自动化工具 |
-| [Chrome DevTools MCP](https://developer.chrome.com/) | 浏览器测试、性能分析、DOM 检查 |
-| [Firebase MCP](https://firebase.google.com/) | 云数据库管理、安全规则验证、项目配置 |
-| [GitHub MCP](https://github.com/) | 仓库管理、PR 审查、代码搜索 |
 
-### 📦 开源项目
-- [Tiptap](https://tiptap.dev/) — 编辑器框架
+### 🛠️ AI 编程 IDE
+- [Antigravity](https://antigravity.google/) — 强力承载全栈开发的智能体 IDE
+
+### 🔌 MCP 工具
+- [Chrome DevTools MCP](https://developer.chrome.com/) — 浏览器测试、性能分析、DOM 检查
+- [Firebase MCP](https://firebase.google.com/) — 云数据库管理、安全规则验证、项目配置
+- [GitHub MCP](https://github.com/) — 仓库管理、自动化发版、代码搜索
+
+### ☁️ 后端与数据库
+- [Firebase Firestore](https://firebase.google.com/docs/firestore) — 多端云同步、NoSQL 数据存储
+- [Firebase Hosting / Vercel](https://vercel.com/) — 全栈服务端托管
+
+### 📦 前端与开源组件
 - [Next.js](https://nextjs.org/) — React 全栈框架
+- [Tiptap](https://tiptap.dev/) — 核心编辑器框架
 - [Zustand](https://zustand-demo.pmnd.rs/) — 状态管理
-- [KaTeX](https://katex.org/) — 数学公式渲染
+- [KaTeX](https://katex.org/) — 本地数学公式渲染
+
+### 🔤 字体鸣谢
+- [霞鹜文楷 (LXGW WenKai)](https://github.com/lxgw/LxgwWenKai) — 优雅的本地中文阅读字体
+- [Inter](https://fonts.google.com/specimen/Inter) — 界面英文字体
