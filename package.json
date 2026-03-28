@@ -32,6 +32,7 @@
     "@tiptap/starter-kit": "^3.19.0",
     "@tiptap/suggestion": "^3.20.1",
     "@vercel/analytics": "^2.0.1",
+    "@vercel/speed-insights": "^2.0.0",
     "docx": "^9.6.0",
     "electron-updater": "^6.8.3",
     "firebase": "^12.11.0",
