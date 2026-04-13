@@ -17,7 +17,9 @@ RUN npm ci --omit=dev
 FROM node:20-alpine AS builder
 WORKDIR /app
 COPY package.json package-lock.json* ./
-RUN npm ci
+ENV ELECTRON_SKIP_BINARY_DOWNLOAD=1
+ENV ELECTRON_BUILDER_DISABLE_DOWNLOAD=true
+RUN npm config set registry https://registry.npmmirror.com && npm ci
 COPY . .
 
 # CloudBase 环境变量（构建时注入，用于云同步功能）
