@@ -26,8 +26,8 @@ const store = create((set, get) => ({
 
     // --- UI State ---
     sidebarOpen: true,
-    setSidebarOpen: (open) => set({ sidebarOpen: open }),
-    toggleSidebar: () => set((state) => ({ sidebarOpen: !state.sidebarOpen })),
+    setSidebarOpen: (open) => set({ sidebarOpen: true }),
+    toggleSidebar: () => set((state) => ({ sidebarOpen: true })),
 
     aiSidebarOpen: false,
     setAiSidebarOpen: (open) => set({ aiSidebarOpen: open }),

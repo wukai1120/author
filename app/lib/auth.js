@@ -87,8 +87,18 @@ export async function initAuth() {
             _listeners.forEach(fn => {
                 try { fn(user); } catch (e) { console.error('[auth] listener error:', e); }
             });
+        } else {
+            _currentUser = null;
+            _listeners.forEach(fn => {
+                try { fn(null); } catch (e) { console.error('[auth] listener error:', e); }
+            });
         }
-    }).catch(() => {});
+    }).catch(() => {
+        _currentUser = null;
+        _listeners.forEach(fn => {
+            try { fn(null); } catch (e) { console.error('[auth] listener error:', e); }
+        });
+    });
 }
 
 // ==================== 账号历史 ====================

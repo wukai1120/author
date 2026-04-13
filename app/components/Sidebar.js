@@ -598,7 +598,7 @@ export default function Sidebar({ onOpenHelp, onToggle, editorRef, pushMode }) {
                 <div className={`sidebar-nav-pane${sidebarOpen ? ' sidebar-nav-expanded' : ''}`}>
                     <div className="sidebar-nav-top">
                         {/* 章节 */}
-                        <IconButton icon={<BookOpen size={18} />} label={t('sidebar.chapterList') || '章节大纲'} text={sidebarOpen ? (t('sidebar.navChapter') || '章节') : undefined} tooltipSide="right" className={`nav-item ${activeNavTab === 'chapters' ? 'active' : ''}`} onClick={() => { if (activeNavTab === 'chapters' && sidebarOpen) { setSidebarOpen(false); } else { setActiveNavTab('chapters'); setSidebarOpen(true); } }} />
+                        <IconButton icon={<BookOpen size={18} />} label={t('sidebar.chapterList') || '章节大纲'} text={sidebarOpen ? (t('sidebar.navChapter') || '章节') : undefined} tooltipSide="right" className={`nav-item ${activeNavTab === 'chapters' ? 'active' : ''}`} onClick={() => { setActiveNavTab('chapters'); }} />
                         
                         {/* 作品信息 */}
                         <IconButton icon={<Book size={18} />} label={'作品信息'} text={sidebarOpen ? '作品' : undefined} tooltipSide="right" className="nav-item" onClick={() => setShowBookInfo(true)} />
@@ -609,7 +609,7 @@ export default function Sidebar({ onOpenHelp, onToggle, editorRef, pushMode }) {
                         <div className="nav-settings-group" style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', borderWidth: 1, borderStyle: 'solid', borderColor: 'var(--border-light, #e5e7eb)', borderRadius: 12, padding: '4px 2px', margin: '0 3px', background: 'var(--bg-secondary, #f9fafb)', gap: 1 }}>
                         {/* 设定集 — 弹出缩略图菜单 */}
                         <div ref={categoryPopoverAnchorRef}>
-                            <IconButton icon={<Library size={18} />} label={showCategoryPopover ? '' : (t('sidebar.tooltipSettings') || '设定集管理')} text={sidebarOpen ? '设定' : undefined} tooltipSide="right" onClick={() => { setSidebarOpen(false); setShowCategoryPopover(!showCategoryPopover); }} className="nav-item" />
+                            <IconButton icon={<Library size={18} />} label={showCategoryPopover ? '' : (t('sidebar.tooltipSettings') || '设定集管理')} text={sidebarOpen ? '设定' : undefined} tooltipSide="right" onClick={() => { setShowCategoryPopover(!showCategoryPopover); }} className="nav-item" />
                             {showCategoryPopover && (
                                 <SettingsCategoryPopover
                                     anchorRef={categoryPopoverAnchorRef}

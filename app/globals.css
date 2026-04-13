@@ -462,8 +462,7 @@ body {
 }
 
 .sidebar.collapsed {
-  width: 48px;
-  box-shadow: none;
+  display: none;
 }
 
 .sidebar.collapsed .sidebar-content-pane {
