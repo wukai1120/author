@@ -728,16 +728,6 @@ export default function HelpPanel({ open, onClose }) {
                 <div className="help-header">
                     <h2>{t('help.title')}</h2>
                     <div style={{ display: 'flex', gap: '12px' }}>
-                        <button
-                            className="tour-btn ghost"
-                            style={{ padding: '6px 12px', fontSize: '13px' }}
-                            onClick={() => {
-                                localStorage.removeItem('author-onboarding-done');
-                                window.location.reload();
-                            }}
-                        >
-                            {t('help.btnRetour')}
-                        </button>
                         <button className="help-close-btn" onClick={onClose}>✕</button>
                     </div>
                 </div>

@@ -90,7 +90,7 @@ const store = create((set, get) => ({
     setWritingMode: (mode) => set({ writingMode: mode }),
 
     // --- Localization & Theming ---
-    language: typeof window !== 'undefined' ? localStorage.getItem('author-lang') || null : null,
+    language: typeof window !== 'undefined' ? localStorage.getItem('author-lang') || 'zh' : 'zh',
     setLanguage: (lang) => set(() => {
         if (typeof window !== 'undefined') {
             localStorage.setItem('author-lang', lang);
@@ -99,7 +99,7 @@ const store = create((set, get) => ({
         return { language: lang };
     }),
 
-    visualTheme: typeof window !== 'undefined' ? localStorage.getItem('author-visual') || null : null,
+    visualTheme: typeof window !== 'undefined' ? localStorage.getItem('author-visual') || 'warm' : 'warm',
     setVisualTheme: (vTheme) => set(() => {
         if (typeof window !== 'undefined') {
             localStorage.setItem('author-visual', vTheme);
@@ -107,9 +107,6 @@ const store = create((set, get) => ({
         }
         return { visualTheme: vTheme };
     }),
-
-    startTour: false,
-    setStartTour: (val) => set({ startTour: val }),
 
     // --- Toast ---
     toast: null,

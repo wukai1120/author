@@ -36,10 +36,8 @@ const Editor = dynamic(() => import('./components/Editor'), {
 const SettingsPanel = dynamic(() => import('./components/SettingsPanel'), { ssr: false });
 const CategorySettingsModal = dynamic(() => import('./components/CategorySettingsModal'), { ssr: false });
 const HelpPanel = dynamic(() => import('./components/HelpPanel'), { ssr: false });
-const TourOverlay = dynamic(() => import('./components/TourOverlay'), { ssr: false });
 const AiSidebar = dynamic(() => import('./components/AiSidebar'), { ssr: false });
 const SnapshotManager = dynamic(() => import('./components/SnapshotManager'), { ssr: false });
-const WelcomeModal = dynamic(() => import('./components/WelcomeModal'), { ssr: false });
 const UpdateBanner = dynamic(() => import('./components/UpdateBanner'), { ssr: false });
 const BookInfoPanel = dynamic(() => import('./components/BookInfoPanel'), { ssr: false });
 const CloudSyncIndicator = dynamic(() => import('./components/CloudSyncIndicator'), { ssr: false });
@@ -218,10 +216,8 @@ export default function Home() {
       const savedTheme = localStorage.getItem('author-theme') || 'light';
       setTheme(savedTheme);
       // 恢复视觉主题（经典纸张 / 现代通透）
-      const savedVisual = localStorage.getItem('author-visual');
-      if (savedVisual) {
-        document.documentElement.setAttribute('data-visual', savedVisual);
-      }
+      const savedVisual = localStorage.getItem('author-visual') || 'warm';
+      document.documentElement.setAttribute('data-visual', savedVisual);
       setWritingMode(getWritingMode());
 
       // 加载会话数据
@@ -592,11 +588,9 @@ export default function Home() {
       <HelpPanel open={showHelp} onClose={() => setShowHelp(false)} />
 
       {/* ===== 首次引导 ===== */}
-      <TourOverlay onOpenHelp={() => setShowHelp(true)} />
       <LoginModal />
       <AccountModal />
       <RegisterModal />
-      <WelcomeModal />
       <SyncGuideModal />
     </div>
   );
