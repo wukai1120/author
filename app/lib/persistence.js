@@ -92,34 +92,34 @@ async function serverDel(key) {
     }
 }
 
-// ==================== Firebase 同步 ====================
+// ==================== CloudBase 同步 ====================
 
-let _firebaseReady = false;
-let _firestoreSync = null;
+let _cloudbaseReady = false;
+let _cloudbaseSync = null;
 let _authModule = null;
 
 /**
- * 懒加载 Firebase 模块（避免未配置时报错）
+ * 懒加载 CloudBase 模块（避免未配置时报错）
  */
-async function ensureFirebase() {
-    if (_firebaseReady) return _firestoreSync;
+async function ensureCloudBase() {
+    if (_cloudbaseReady) return _cloudbaseSync;
     try {
-        const { isFirebaseConfigured } = await import('./firebase');
-        if (!isFirebaseConfigured) {
-            _firebaseReady = true;
+        const { isCloudBaseConfigured } = await import('./cloudbase');
+        if (!isCloudBaseConfigured) {
+            _cloudbaseReady = true;
             return null;
         }
-        _firestoreSync = await import('./firestore-sync');
+        _cloudbaseSync = await import('./cloudbase-sync');
         _authModule = await import('./auth');
-        _firebaseReady = true;
-        return _firestoreSync;
+        _cloudbaseReady = true;
+        return _cloudbaseSync;
     } catch {
-        _firebaseReady = true;
+        _cloudbaseReady = true;
         return null;
     }
 }
 
-function isFirebaseSignedIn() {
+function isCloudBaseSignedIn() {
     return _authModule?.isSignedIn?.() || false;
 }
 
@@ -179,10 +179,10 @@ export async function persistSet(key, value) {
         });
     }
 
-    // 3. Firebase 云同步（去抖队列，5分钟批量写入）
+    // 3. CloudBase 云同步（去抖队列，5分钟批量写入）
     if (isSyncableKey(key)) {
-        const sync = await ensureFirebase();
-        if (sync && isFirebaseSignedIn()) {
+        const sync = await ensureCloudBase();
+        if (sync && isCloudBaseSignedIn()) {
             sync.firestoreEnqueue(key, value);
         }
     }
@@ -201,10 +201,10 @@ export async function persistDel(key) {
         serverDel(key).catch(() => { });
     }
 
-    // Firebase 删除
+    // CloudBase 删除
     if (isSyncableKey(key)) {
-        const sync = await ensureFirebase();
-        if (sync && isFirebaseSignedIn()) {
+        const sync = await ensureCloudBase();
+        if (sync && isCloudBaseSignedIn()) {
             sync.firestoreDel(key).catch(() => { });
         }
     }
@@ -288,8 +288,8 @@ export async function initPersistence() {
     ensureUserId();
     await checkServerAvailable();
 
-    // 初始化 Firebase Auth（如果已配置）
-    const sync = await ensureFirebase();
+    // 初始化 CloudBase Auth（如果已配置）
+    const sync = await ensureCloudBase();
     if (sync && _authModule) {
         _authModule.initAuth();
         // 页面卸载前尝试同步
@@ -298,20 +298,20 @@ export async function initPersistence() {
 }
 
 /**
- * Firebase 登录后调用：从云端拉取数据合并到本地
+ * CloudBase 登录后调用：从云端拉取数据合并到本地
  * @returns {Promise<number>} 合并的条数
  */
 export async function syncFromCloud() {
-    const sync = await ensureFirebase();
-    if (!sync || !isFirebaseSignedIn()) return 0;
+    const sync = await ensureCloudBase();
+    if (!sync || !isCloudBaseSignedIn()) return 0;
     return await sync.pullAllFromCloud(persistGet, persistSet);
 }
 
 /**
- * Firebase 退出登录前调用：同步剩余数据 + 停止同步
+ * CloudBase 退出登录前调用：同步剩余数据 + 停止同步
  */
 export async function stopCloudSync() {
-    const sync = await ensureFirebase();
+    const sync = await ensureCloudBase();
     if (!sync) return;
     await sync.flushSync(); // 先同步剩余
     sync.stopSync();        // 再停止

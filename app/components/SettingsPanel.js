@@ -1330,73 +1330,31 @@ export const PROVIDERS = [
 ];
 
 function PreferencesForm() {
-    const { language, setLanguage, visualTheme, setVisualTheme, sidebarPushMode, setSidebarPushMode, aiSidebarPushMode, setAiSidebarPushMode, setShowSyncGuideModal } = useAppStore();
+    const { language, setLanguage, visualTheme, setVisualTheme, sidebarPushMode, setSidebarPushMode, aiSidebarPushMode, setAiSidebarPushMode, setShowSyncGuideModal, setShowLoginModal, setShowRegisterModal } = useAppStore();
     const { t } = useI18n();
 
-    // ---- Firebase 账户 ----
+    // ---- CloudBase 账户 ----
     const [authUser, setAuthUser] = useState(null);
     const [authLoading, setAuthLoading] = useState(false);
     const [authError, setAuthError] = useState('');
-    const [authEmail, setAuthEmail] = useState('');
-    const [authPassword, setAuthPassword] = useState('');
-    const [authMode, setAuthMode] = useState('login'); // 'login' | 'register'
     const [syncStatus, setSyncStatus] = useState(null);
-    const [firebaseAvailable, setFirebaseAvailable] = useState(false);
+    const [cloudBaseAvailable, setCloudBaseAvailable] = useState(false);
 
     useEffect(() => {
-        // 动态加载 Firebase 模块（避免未配置时报错）
+        // 动态加载 CloudBase 模块（避免未配置时报错）
         (async () => {
             try {
-                const { isFirebaseConfigured } = await import('../lib/firebase');
-                if (!isFirebaseConfigured) return;
-                setFirebaseAvailable(true);
+                const { isCloudBaseConfigured } = await import('../lib/cloudbase');
+                if (!isCloudBaseConfigured) return;
+                setCloudBaseAvailable(true);
                 const { onAuthChange, initAuth } = await import('../lib/auth');
-                const { onSyncStatusChange } = await import('../lib/firestore-sync');
+                const { onSyncStatusChange } = await import('../lib/cloudbase-sync');
                 initAuth();
                 onAuthChange(user => setAuthUser(user));
                 onSyncStatusChange(status => setSyncStatus(status));
-            } catch { /* Firebase 未配置，忽略 */ }
+            } catch { /* CloudBase 未配置，忽略 */ }
         })();
     }, []);
-
-    const handleEmailAuth = async () => {
-        setAuthLoading(true);
-        setAuthError('');
-        try {
-            const auth = await import('../lib/auth');
-            if (authMode === 'register') {
-                await auth.signUpWithEmail(authEmail, authPassword);
-            } else {
-                await auth.signInWithEmail(authEmail, authPassword);
-            }
-            // 登录成功后从云端拉取数据
-            const { syncFromCloud } = await import('../lib/persistence');
-            const merged = await syncFromCloud();
-            if (merged > 0) {
-                window.location.reload(); // 数据合并后刷新
-            }
-        } catch (err) {
-            setAuthError(err.message || '操作失败');
-        } finally {
-            setAuthLoading(false);
-        }
-    };
-
-    const handleGoogleAuth = async () => {
-        setAuthLoading(true);
-        setAuthError('');
-        try {
-            const auth = await import('../lib/auth');
-            await auth.signInWithGoogle();
-            const { syncFromCloud } = await import('../lib/persistence');
-            const merged = await syncFromCloud();
-            if (merged > 0) window.location.reload();
-        } catch (err) {
-            setAuthError(err.message || 'Google 登录失败');
-        } finally {
-            setAuthLoading(false);
-        }
-    };
 
     const handleSignOut = async () => {
         try {
@@ -1462,7 +1420,7 @@ function PreferencesForm() {
                 <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 16 }}>
                     <Cloud size={16} style={{ color: 'var(--accent)' }} />
                     <span style={{ fontSize: 14, fontWeight: 600, color: 'var(--text-primary)' }}>云同步</span>
-                    {firebaseAvailable && authUser && (
+                    {cloudBaseAvailable && authUser && (
                         <span style={{
                             fontSize: 11, padding: '2px 8px', borderRadius: 20,
                             background: 'rgba(34,197,94,0.1)', color: '#22c55e', fontWeight: 500,
@@ -1474,8 +1432,8 @@ function PreferencesForm() {
                     )}
                 </div>
 
-                {!firebaseAvailable ? (
-                    /* 未配置 Firebase（本地离线模式） */
+                {!cloudBaseAvailable ? (
+                    /* 未配置 CloudBase（本地离线模式） */
                     <div style={{
                         padding: '16px 20px', borderRadius: 'var(--radius-md)',
                         background: 'var(--bg-primary)', border: '1px solid var(--border-light)',
@@ -1566,33 +1524,6 @@ function PreferencesForm() {
                                 登录后自动同步作品到云端，支持多设备访问。未登录时数据仅保存在本地。
                             </p>
 
-                            {/* 邮箱/密码 */}
-                            <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginBottom: 12 }}>
-                                <input
-                                    type="email" value={authEmail} onChange={e => setAuthEmail(e.target.value)}
-                                    placeholder="邮箱" autoComplete="email"
-                                    style={{
-                                        padding: '8px 12px', border: '1px solid var(--border-light)',
-                                        borderRadius: 'var(--radius-sm)', background: 'var(--bg-primary)',
-                                        color: 'var(--text-primary)', fontSize: 13, outline: 'none',
-                                    }}
-                                    onFocus={e => e.currentTarget.style.borderColor = 'var(--accent)'}
-                                    onBlur={e => e.currentTarget.style.borderColor = 'var(--border-light)'}
-                                />
-                                <input
-                                    type="password" value={authPassword} onChange={e => setAuthPassword(e.target.value)}
-                                    placeholder="密码（至少6位）" autoComplete={authMode === 'register' ? 'new-password' : 'current-password'}
-                                    onKeyDown={e => { if (e.key === 'Enter') handleEmailAuth(); }}
-                                    style={{
-                                        padding: '8px 12px', border: '1px solid var(--border-light)',
-                                        borderRadius: 'var(--radius-sm)', background: 'var(--bg-primary)',
-                                        color: 'var(--text-primary)', fontSize: 13, outline: 'none',
-                                    }}
-                                    onFocus={e => e.currentTarget.style.borderColor = 'var(--accent)'}
-                                    onBlur={e => e.currentTarget.style.borderColor = 'var(--border-light)'}
-                                />
-                            </div>
-
                             {authError && (
                                 <div style={{ fontSize: 12, color: '#ef4444', marginBottom: 8, padding: '6px 10px', background: 'rgba(239,68,68,0.06)', borderRadius: 'var(--radius-sm)' }}>
                                     <XCircle size={12} style={{ marginRight: 4, verticalAlign: -1 }} />{authError}
@@ -1601,53 +1532,39 @@ function PreferencesForm() {
 
                             <div style={{ display: 'flex', gap: 8, marginBottom: 12 }}>
                                 <button
-                                    onClick={handleEmailAuth}
-                                    disabled={authLoading || !authEmail || !authPassword}
+                                    onClick={() => { setAuthError(''); setShowLoginModal(true); }}
+                                    disabled={authLoading}
                                     style={{
                                         flex: 1, padding: '8px 16px', fontSize: 13, fontWeight: 600,
                                         border: 'none', borderRadius: 'var(--radius-sm)',
                                         background: 'var(--accent)', color: '#fff', cursor: 'pointer',
-                                        opacity: (authLoading || !authEmail || !authPassword) ? 0.5 : 1,
+                                        opacity: authLoading ? 0.5 : 1,
                                         transition: 'all 0.15s',
                                     }}
                                 >
-                                    {authLoading ? '处理中...' : authMode === 'register' ? '注册' : '登录'}
+                                    登录云同步
                                 </button>
                                 <button
-                                    onClick={() => { setAuthMode(authMode === 'login' ? 'register' : 'login'); setAuthError(''); }}
+                                    onClick={() => { setAuthError(''); setShowRegisterModal(true); }}
                                     style={{
                                         padding: '8px 12px', fontSize: 12, border: '1px solid var(--border-light)',
                                         borderRadius: 'var(--radius-sm)', background: 'none', cursor: 'pointer',
                                         color: 'var(--text-muted)', transition: 'all 0.15s',
                                     }}
                                 >
-                                    {authMode === 'login' ? '没有账号？注册' : '已有账号？登录'}
+                                    注册账号
                                 </button>
                             </div>
 
-                            {/* 分隔线 */}
                             <div style={{ display: 'flex', alignItems: 'center', gap: 12, margin: '12px 0' }}>
                                 <div style={{ flex: 1, height: 1, background: 'var(--border-light)' }} />
-                                <span style={{ fontSize: 11, color: 'var(--text-muted)' }}>或</span>
+                                <span style={{ fontSize: 11, color: 'var(--text-muted)' }}>说明</span>
                                 <div style={{ flex: 1, height: 1, background: 'var(--border-light)' }} />
                             </div>
 
-                            {/* Google 登录 */}
-                            <button
-                                onClick={handleGoogleAuth}
-                                disabled={authLoading}
-                                style={{
-                                    width: '100%', padding: '8px 16px', fontSize: 13, fontWeight: 500,
-                                    border: '1px solid var(--border-light)', borderRadius: 'var(--radius-sm)',
-                                    background: 'var(--bg-primary)', color: 'var(--text-primary)', cursor: 'pointer',
-                                    display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8,
-                                    transition: 'all 0.15s',
-                                }}
-                                onMouseEnter={e => e.currentTarget.style.background = 'var(--bg-secondary)'}
-                                onMouseLeave={e => e.currentTarget.style.background = 'var(--bg-primary)'}
-                            >
-                                <Globe2 size={15} /> 使用 Google 账号登录
-                            </button>
+                            <div style={{ fontSize: 12, color: 'var(--text-muted)', lineHeight: 1.6 }}>
+                                当前 CloudBase 支持 <strong style={{ color: 'var(--text-primary)' }}>邮箱验证码</strong> 与 <strong style={{ color: 'var(--text-primary)' }}>微信登录</strong>。
+                            </div>
                         </div>
                     )}
                 </div>

@@ -1,43 +1,93 @@
 'use client';
 
 import { useState, useEffect, useCallback } from 'react';
-import { X, Mail, Lock, XCircle } from 'lucide-react';
+import { X, Mail, Lock, XCircle, ArrowLeft } from 'lucide-react';
 import { useAppStore } from '../store/useAppStore';
 import { useI18n } from '../lib/useI18n';
-import { useAuthAction } from '../lib/useAuthAction';
-import GoogleIcon from './icons/GoogleIcon';
+import WechatIcon from './icons/WechatIcon';
 
 /**
- * 独立登录弹窗（仅登录，注册入口跳转 RegisterModal）
- * 支持邮箱密码登录 + Google 登录
+ * 独立登录弹窗
+ * 支持邮箱 OTP 验证码登录 + 微信登录
  */
 export default function LoginModal() {
     const { showLoginModal, setShowLoginModal, setShowRegisterModal } = useAppStore();
     const [authEmail, setAuthEmail] = useState('');
-    const [authPassword, setAuthPassword] = useState('');
+    const [otpCode, setOtpCode] = useState('');
+    const [step, setStep] = useState('email'); // 'email' | 'otp'
+    const [verifyFn, setVerifyFn] = useState(null);
+    const [loading, setLoading] = useState(false);
+    const [error, setError] = useState('');
+    const [countdown, setCountdown] = useState(0);
     const { t } = useI18n();
 
     const closeModal = useCallback(() => setShowLoginModal(false), [setShowLoginModal]);
-    const { loading, error, run } = useAuthAction(closeModal, t('loginModal.loginFailed'));
 
     useEffect(() => {
         if (showLoginModal) {
             setAuthEmail('');
-            setAuthPassword('');
+            setOtpCode('');
+            setStep('email');
+            setVerifyFn(null);
+            setError('');
+            setCountdown(0);
         }
     }, [showLoginModal]);
 
+    // 倒计时
+    useEffect(() => {
+        if (countdown <= 0) return;
+        const timer = setTimeout(() => setCountdown(c => c - 1), 1000);
+        return () => clearTimeout(timer);
+    }, [countdown]);
+
     if (!showLoginModal) return null;
 
-    const handleEmailLogin = () => run(async () => {
-        const auth = await import('../lib/auth');
-        await auth.signInWithEmail(authEmail, authPassword);
-    });
+    const handleSendOtp = async () => {
+        if (!authEmail) return;
+        setLoading(true);
+        setError('');
+        try {
+            const auth = await import('../lib/auth');
+            const result = await auth.sendEmailOtp(authEmail);
+            setVerifyFn(() => result.verifyOtp);
+            setStep('otp');
+            setCountdown(60);
+        } catch (err) {
+            setError(err.message || t('loginModal.loginFailed') || '发送验证码失败');
+        } finally {
+            setLoading(false);
+        }
+    };
 
-    const handleGoogleLogin = () => run(async () => {
-        const auth = await import('../lib/auth');
-        await auth.signInWithGoogle();
-    });
+    const handleVerifyOtp = async () => {
+        if (!otpCode || !verifyFn) return;
+        setLoading(true);
+        setError('');
+        try {
+            await verifyFn(otpCode);
+            const { syncFromCloud } = await import('../lib/persistence');
+            const merged = await syncFromCloud();
+            closeModal();
+            if (merged > 0) window.location.reload();
+        } catch (err) {
+            setError(err.message || '验证码错误');
+        } finally {
+            setLoading(false);
+        }
+    };
+
+    const handleWechatLogin = async () => {
+        setLoading(true);
+        setError('');
+        try {
+            const auth = await import('../lib/auth');
+            await auth.signInWithWechat();
+        } catch (err) {
+            setError(err.message || '微信登录失败');
+            setLoading(false);
+        }
+    };
 
     const switchToRegister = () => {
         setShowLoginModal(false);
@@ -45,13 +95,13 @@ export default function LoginModal() {
     };
 
     return (
-        <div className="login-modal-overlay" onClick={() => setShowLoginModal(false)}>
+        <div className="login-modal-overlay" onClick={closeModal}>
             <div className="login-modal" onClick={e => e.stopPropagation()}>
-                <button className="login-modal-close" onClick={() => setShowLoginModal(false)}>
+                <button className="login-modal-close" onClick={closeModal}>
                     <X size={18} />
                 </button>
 
-                {/* 头部 - Author Logo */}
+                {/* 头部 */}
                 <div className="login-modal-header">
                     <div className="login-modal-icon">
                         <img src="/author-logo.png" alt="Author" className="login-modal-logo-img" />
@@ -60,57 +110,102 @@ export default function LoginModal() {
                     <p className="login-modal-desc">{t('loginModal.desc')}</p>
                 </div>
 
-                {/* 邮箱密码表单 — 放在上面 */}
-                <div className="login-modal-form">
-                    <div className="login-modal-input-wrap">
-                        <Mail size={15} className="login-modal-input-icon" />
-                        <input
-                            type="email"
-                            value={authEmail}
-                            onChange={e => setAuthEmail(e.target.value)}
-                            placeholder={t('loginModal.emailPlaceholder')}
-                            autoComplete="email"
-                            className="login-modal-input"
-                        />
-                    </div>
-                    <div className="login-modal-input-wrap">
-                        <Lock size={15} className="login-modal-input-icon" />
-                        <input
-                            type="password"
-                            value={authPassword}
-                            onChange={e => setAuthPassword(e.target.value)}
-                            placeholder={t('loginModal.passwordPlaceholder')}
-                            autoComplete="current-password"
-                            onKeyDown={e => { if (e.key === 'Enter' && authEmail && authPassword) handleEmailLogin(); }}
-                            className="login-modal-input"
-                        />
-                    </div>
-                </div>
+                {step === 'email' ? (
+                    /* 第一步：输入邮箱 */
+                    <>
+                        <div className="login-modal-form">
+                            <div className="login-modal-input-wrap">
+                                <Mail size={15} className="login-modal-input-icon" />
+                                <input
+                                    type="email"
+                                    value={authEmail}
+                                    onChange={e => setAuthEmail(e.target.value)}
+                                    placeholder={t('loginModal.emailPlaceholder')}
+                                    autoComplete="email"
+                                    className="login-modal-input"
+                                    onKeyDown={e => { if (e.key === 'Enter' && authEmail) handleSendOtp(); }}
+                                />
+                            </div>
+                        </div>
 
-                {error && (
-                    <div className="login-modal-error">
-                        <XCircle size={13} /> {error}
-                    </div>
+                        {error && (
+                            <div className="login-modal-error">
+                                <XCircle size={13} /> {error}
+                            </div>
+                        )}
+
+                        <button
+                            className="login-modal-submit-btn"
+                            onClick={handleSendOtp}
+                            disabled={loading || !authEmail}
+                        >
+                            {loading ? '发送中...' : '发送验证码'}
+                        </button>
+                    </>
+                ) : (
+                    /* 第二步：输入验证码 */
+                    <>
+                        <div className="login-modal-form">
+                            <div style={{ fontSize: 13, color: 'var(--text-muted)', marginBottom: 8, textAlign: 'center' }}>
+                                验证码已发送至 <strong style={{ color: 'var(--text-primary)' }}>{authEmail}</strong>
+                            </div>
+                            <div className="login-modal-input-wrap">
+                                <Lock size={15} className="login-modal-input-icon" />
+                                <input
+                                    type="text"
+                                    value={otpCode}
+                                    onChange={e => setOtpCode(e.target.value)}
+                                    placeholder="输入验证码"
+                                    autoComplete="one-time-code"
+                                    className="login-modal-input"
+                                    autoFocus
+                                    onKeyDown={e => { if (e.key === 'Enter' && otpCode) handleVerifyOtp(); }}
+                                />
+                            </div>
+                        </div>
+
+                        {error && (
+                            <div className="login-modal-error">
+                                <XCircle size={13} /> {error}
+                            </div>
+                        )}
+
+                        <button
+                            className="login-modal-submit-btn"
+                            onClick={handleVerifyOtp}
+                            disabled={loading || !otpCode}
+                        >
+                            {loading ? t('loginModal.loggingIn') || '登录中...' : t('loginModal.loginBtn') || '登录'}
+                        </button>
+
+                        <div style={{ display: 'flex', justifyContent: 'center', gap: 16, marginTop: 8, fontSize: 13 }}>
+                            <button
+                                style={{ background: 'none', border: 'none', color: 'var(--text-muted)', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 4, fontFamily: 'var(--font-ui)' }}
+                                onClick={() => { setStep('email'); setError(''); setOtpCode(''); }}
+                            >
+                                <ArrowLeft size={13} /> 更换邮箱
+                            </button>
+                            <button
+                                style={{ background: 'none', border: 'none', color: countdown > 0 ? 'var(--text-muted)' : 'var(--accent)', cursor: countdown > 0 ? 'default' : 'pointer', fontFamily: 'var(--font-ui)' }}
+                                onClick={handleSendOtp}
+                                disabled={countdown > 0 || loading}
+                            >
+                                {countdown > 0 ? `${countdown}s 后重发` : '重新发送'}
+                            </button>
+                        </div>
+                    </>
                 )}
 
-                <button
-                    className="login-modal-submit-btn"
-                    onClick={handleEmailLogin}
-                    disabled={loading || !authEmail || !authPassword}
-                >
-                    {loading ? t('loginModal.loggingIn') : t('loginModal.loginBtn')}
-                </button>
-
-                {/* 分隔线 + Google 登录 — 放在下面 */}
-                <div className="login-modal-divider"><span>{t('loginModal.or')}</span></div>
+                {/* 分隔线 + 微信登录 */}
+                <div className="login-modal-divider"><span>{t('loginModal.or') || '或'}</span></div>
 
                 <button
                     className="login-modal-google-btn"
-                    onClick={handleGoogleLogin}
+                    onClick={handleWechatLogin}
                     disabled={loading}
                 >
-                    <GoogleIcon />
-                    {t('loginModal.googleLogin')}
+                    {typeof WechatIcon !== 'undefined' ? <WechatIcon /> : null}
+                    微信登录
                 </button>
 
                 <div className="login-modal-switch">

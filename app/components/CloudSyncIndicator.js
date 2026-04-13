@@ -16,7 +16,7 @@ export default function CloudSyncIndicator() {
     const { t } = useI18n();
     const [authUser, setAuthUser] = useState(null);
     const [syncStatus, setSyncStatus] = useState(null);
-    const [firebaseAvailable, setFirebaseAvailable] = useState(false);
+    const [cloudBaseAvailable, setCloudBaseAvailable] = useState(false);
     const [menuOpen, setMenuOpen] = useState(false);
     const btnRef = useRef(null);
 
@@ -24,24 +24,24 @@ export default function CloudSyncIndicator() {
         let unmounted = false;
         (async () => {
             try {
-                const { isFirebaseConfigured } = await import('../lib/firebase');
-                if (!isFirebaseConfigured || unmounted) return;
-                setFirebaseAvailable(true);
+                const { isCloudBaseConfigured } = await import('../lib/cloudbase');
+                if (!isCloudBaseConfigured || unmounted) return;
+                setCloudBaseAvailable(true);
                 const { onAuthChange, initAuth } = await import('../lib/auth');
-                const { onSyncStatusChange } = await import('../lib/firestore-sync');
+                const { onSyncStatusChange } = await import('../lib/cloudbase-sync');
                 initAuth();
                 onAuthChange(user => { if (!unmounted) setAuthUser(user); });
                 onSyncStatusChange(status => { if (!unmounted) setSyncStatus(status); });
-            } catch { /* Firebase 未配置 */ }
+            } catch { /* CloudBase 未配置 */ }
         })();
         return () => { unmounted = true; };
     }, []);
 
-    if (!firebaseAvailable) {
+    if (!cloudBaseAvailable) {
         const isElectron = typeof window !== 'undefined' && window.electron;
 
         if (isElectron) {
-            // Electron 环境下 Firebase 必定可用，即使暂时加载未完成也应该走正常未登录的流程
+            // Electron 环境下 CloudBase 必定可用，即使暂时加载未完成也应该走正常未登录的流程
             return (
                 <button
                     id="tour-cloud-sync"
@@ -55,7 +55,7 @@ export default function CloudSyncIndicator() {
             );
         }
 
-        // 非 Electron 环境（Web/Vercel）且未配置 Firebase
+        // 非 Electron 环境（Web/Vercel）且未配置 CloudBase
         return (
             <button
                 id="tour-cloud-sync"
