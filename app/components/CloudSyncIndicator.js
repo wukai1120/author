@@ -44,7 +44,7 @@ export default function CloudSyncIndicator() {
             <button
                 id="tour-cloud-sync"
                 className="cloud-sync-indicator cloud-sync-login"
-                onClick={() => router.push('/login?next=/')}
+                onClick={() => router.push('/login')}
                 title="登录以开启云同步"
             >
                 <CloudOff size={15} />
@@ -78,7 +78,7 @@ export default function CloudSyncIndicator() {
             <button
                 id="tour-cloud-sync"
                 className="cloud-sync-indicator cloud-sync-login"
-                onClick={() => router.push('/login?next=/')}
+                onClick={() => router.push('/login')}
                 title="登录以开启云同步"
             >
                 <CloudOff size={15} />

@@ -745,7 +745,7 @@ export default function Sidebar({ onOpenHelp, onToggle, editorRef, pushMode }) {
                                 tooltipSide="right"
                                 onClick={() => {
                                     if (!cloudBaseAvailable || !cloudAuthUser) {
-                                        router.push('/login?next=/');
+                                        router.push('/login');
                                     }
                                 }}
                                 className={`nav-item${cloudAuthUser ? ' nav-cloud-active' : ''}`}

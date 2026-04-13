@@ -199,7 +199,7 @@ export default function AccountModal() {
                                     await auth.signOut();
                                 } catch { }
                                 setShowAccountModal(false);
-                                router.push('/login?next=/');
+                                router.push('/login');
                             }}>
                                 <div style={{ width: 40, height: 40, borderRadius: '50%', overflow: 'hidden', flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'linear-gradient(135deg, var(--accent), var(--accent-hover))', color: '#fff', fontWeight: 700, fontSize: 16 }}>
                                     {acc.photoURL ? (
@@ -225,7 +225,7 @@ export default function AccountModal() {
                         {/* 添加新账号 */}
                         <div style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '10px 12px', borderRadius: 8, cursor: 'pointer', transition: 'background 0.15s' }} className="account-switcher-item" onClick={() => {
                             setShowAccountModal(false);
-                            router.push('/login?next=/');
+                            router.push('/login');
                         }}>
                             <div style={{ width: 40, height: 40, borderRadius: '50%', flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'var(--bg-secondary)', color: 'var(--text-secondary)', border: '2px dashed var(--border-medium)' }}>
                                 <Plus size={20} />

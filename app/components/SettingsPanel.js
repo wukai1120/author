@@ -1408,7 +1408,7 @@ function PreferencesForm() {
                         </div>
                         <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: 4 }}>
                             <button
-                                onClick={() => router.push('/login?next=/')}
+                                onClick={() => router.push('/login')}
                                 style={{
                                     padding: '6px 14px', fontSize: 12, fontWeight: 500,
                                     background: 'var(--accent)', color: '#fff', border: 'none',
@@ -1487,7 +1487,7 @@ function PreferencesForm() {
 
                             <div style={{ display: 'flex', gap: 8, marginBottom: 12 }}>
                                 <button
-                                    onClick={() => { setAuthError(''); router.push('/login?next=/'); }}
+                                    onClick={() => { setAuthError(''); router.push('/login'); }}
                                     disabled={authLoading}
                                     style={{
                                         flex: 1, padding: '8px 16px', fontSize: 13, fontWeight: 600,
@@ -1500,7 +1500,7 @@ function PreferencesForm() {
                                     登录云同步
                                 </button>
                                 <button
-                                    onClick={() => { setAuthError(''); router.push('/register?next=/'); }}
+                                    onClick={() => { setAuthError(''); router.push('/register'); }}
                                     style={{
                                         padding: '8px 12px', fontSize: 12, border: '1px solid var(--border-light)',
                                         borderRadius: 'var(--radius-sm)', background: 'none', cursor: 'pointer',
