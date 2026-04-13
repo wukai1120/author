@@ -1,7 +1,7 @@
 'use client';
 
-import { useState, useEffect, useMemo } from 'react';
-import { useRouter, useSearchParams } from 'next/navigation';
+import { useState, useEffect } from 'react';
+import { useRouter } from 'next/navigation';
 import { X, Mail, Lock, XCircle, ArrowLeft } from 'lucide-react';
 import { useI18n } from '../lib/useI18n';
 import WechatIcon from '../components/icons/WechatIcon';
@@ -12,12 +12,11 @@ function getSafeNext(next) {
     return next;
 }
 
-export default function LoginPage() {
+export default function LoginPage({ searchParams }) {
     const router = useRouter();
-    const searchParams = useSearchParams();
     const { t } = useI18n();
 
-    const nextPath = useMemo(() => getSafeNext(searchParams.get('next')), [searchParams]);
+    const nextPath = getSafeNext(searchParams?.next);
 
     const [authEmail, setAuthEmail] = useState('');
     const [otpCode, setOtpCode] = useState('');
