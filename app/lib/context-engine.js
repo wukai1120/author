@@ -17,14 +17,11 @@ import { estimateTokenCount } from 'tokenx';
 export async function ragRecommend(queryText, topN = 10) {
     if (!queryText || !queryText.trim()) return [];
 
-    const { apiConfig } = getProjectSettings();
-    if (!apiConfig?.useCustomEmbed) return [];
-
     // 如果查询文本太短，补充更多上下文
     let enrichedQuery = queryText.trim();
 
     // 获取查询向量
-    const queryVector = await getEmbedding(enrichedQuery, apiConfig);
+    const queryVector = await getEmbedding(enrichedQuery);
     if (!queryVector) return [];
 
     // getSettingsNodes() 已按当前作品过滤
@@ -215,7 +212,7 @@ export async function buildContext(activeChapterId, selectedText, selectedIds = 
         // --- RAG 自动检索（仅当有手动勾选时，对未勾选项做 RAG 补充） ---
         let autoRetrievedNodes = [];
         const queryText = (selectedText || '').trim();
-        if (settings.apiConfig?.useCustomEmbed && queryText && unselectedItemNodes.length > 0) {
+        if (queryText && unselectedItemNodes.length > 0) {
             try {
                 let ragSourceText = queryText;
                 if (ragSourceText.length < 50 && currentChapter) {
@@ -223,7 +220,7 @@ export async function buildContext(activeChapterId, selectedText, selectedIds = 
                     ragSourceText = ragSourceText + '\n' + stripChapText;
                 }
 
-                const queryVector = await getEmbedding(ragSourceText, settings.apiConfig);
+                const queryVector = await getEmbedding(ragSourceText);
                 if (queryVector) {
                     const scoredNodes = unselectedItemNodes.map(n => {
                         if (!n.embedding) return { node: n, score: -1 };

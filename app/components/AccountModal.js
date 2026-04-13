@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useEffect, useRef } from 'react';
+import { useRouter } from 'next/navigation';
 import {
     X, Cloud, LogOut, Shield, Mail, User as UserIcon, RefreshCw,
     CheckCircle2, Clock, HardDrive, Edit3, Save, ArrowRightLeft,
@@ -13,7 +14,8 @@ import { useAppStore } from '../store/useAppStore';
  * 显示用户信息、编辑个人资料、同步状态、切换账号、退出登录
  */
 export default function AccountModal() {
-    const { showAccountModal, accountModalSwitcher, setShowAccountModal, setShowLoginModal } = useAppStore();
+    const { showAccountModal, accountModalSwitcher, setShowAccountModal } = useAppStore();
+    const router = useRouter();
     const [authUser, setAuthUser] = useState(null);
     const [syncStatus, setSyncStatus] = useState(null);
     const [signingOut, setSigningOut] = useState(false);
@@ -130,38 +132,10 @@ export default function AccountModal() {
         }
     };
 
-    const handleSwitchToAccount = async (account) => {
-        // 先退出当前账号
-        try {
-            const { stopCloudSync } = await import('../lib/persistence');
-            await stopCloudSync();
-            const auth = await import('../lib/auth');
-            await auth.signOut();
-        } catch { }
-        setShowAccountModal(false);
-        // 延时打开登录弹窗（用户需要重新认证）
-        setTimeout(() => setShowLoginModal(true), 300);
-    };
-
-    const handleAddNewAccount = () => {
-        // 不退出当前账号，直接打开登录窗
-        // 如果用户成功登录新账号，CloudBase 会自动切换
-        // 如果用户取消，原账号状态保持不变
-        setShowAccountModal(false);
-        setTimeout(() => setShowLoginModal(true), 300);
-    };
-
     const handleRemoveFromHistory = async (uid) => {
         const { removeAccountFromHistory, getAccountHistory } = await import('../lib/auth');
         removeAccountFromHistory(uid);
         setAccountHistory(getAccountHistory());
-    };
-
-    const handleManualSync = async () => {
-        try {
-            const { flushSync } = await import('../lib/cloudbase-sync');
-            await flushSync();
-        } catch { }
     };
 
     const initial = (authUser.displayName || authUser.email || '?')[0].toUpperCase();
@@ -217,7 +191,16 @@ export default function AccountModal() {
 
                         {/* 历史账号 */}
                         {otherAccounts.map(acc => (
-                            <div key={acc.uid} style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '10px 12px', borderRadius: 8, cursor: 'pointer', transition: 'background 0.15s' }} className="account-switcher-item" onClick={() => handleSwitchToAccount(acc)}>
+                            <div key={acc.uid} style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '10px 12px', borderRadius: 8, cursor: 'pointer', transition: 'background 0.15s' }} className="account-switcher-item" onClick={async () => {
+                                try {
+                                    const { stopCloudSync } = await import('../lib/persistence');
+                                    await stopCloudSync();
+                                    const auth = await import('../lib/auth');
+                                    await auth.signOut();
+                                } catch { }
+                                setShowAccountModal(false);
+                                router.push('/login?next=/');
+                            }}>
                                 <div style={{ width: 40, height: 40, borderRadius: '50%', overflow: 'hidden', flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'linear-gradient(135deg, var(--accent), var(--accent-hover))', color: '#fff', fontWeight: 700, fontSize: 16 }}>
                                     {acc.photoURL ? (
                                         <img src={acc.photoURL} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
@@ -240,7 +223,10 @@ export default function AccountModal() {
                         ))}
 
                         {/* 添加新账号 */}
-                        <div style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '10px 12px', borderRadius: 8, cursor: 'pointer', transition: 'background 0.15s' }} className="account-switcher-item" onClick={handleAddNewAccount}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '10px 12px', borderRadius: 8, cursor: 'pointer', transition: 'background 0.15s' }} className="account-switcher-item" onClick={() => {
+                            setShowAccountModal(false);
+                            router.push('/login?next=/');
+                        }}>
                             <div style={{ width: 40, height: 40, borderRadius: '50%', flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'var(--bg-secondary)', color: 'var(--text-secondary)', border: '2px dashed var(--border-medium)' }}>
                                 <Plus size={20} />
                             </div>
@@ -304,7 +290,7 @@ export default function AccountModal() {
                         </div>
 
                         {/* 同步状态卡片 */}
-                        <div className="account-modal-sync-card" onClick={handleManualSync} title="点击立即同步">
+                        <div className="account-modal-sync-card">
                             <div className="account-modal-sync-icon" style={{ color: syncInfo.color }}>
                                 {syncInfo.icon}
                             </div>
@@ -369,7 +355,7 @@ export default function AccountModal() {
                         </div>
 
                         <p className="account-modal-footer">
-                            退出后数据仅保存在本地，不再同步到云端
+                            退出后数据仍保留在本地，可稍后重新登录继续自动同步
                         </p>
                     </>
                 )}

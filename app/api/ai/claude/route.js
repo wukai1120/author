@@ -54,16 +54,16 @@ async function executeSearch(query, searchConfig, proxyUrl) {
 
 export async function POST(request) {
     try {
-        const { systemPrompt, userPrompt, apiConfig, maxTokens, temperature, topP, reasoningEffort, tools: toolsConfig } = await request.json();
-        const proxyUrl = apiConfig?.proxyUrl || '';
+        const { systemPrompt, userPrompt, maxTokens, temperature, topP, reasoningEffort, tools: toolsConfig } = await request.json();
+        const proxyUrl = process.env.AI_PROXY_URL || '';
 
-        const apiKey = rotateKey(apiConfig?.apiKey || process.env.CLAUDE_API_KEY);
-        const baseUrl = (apiConfig?.baseUrl || process.env.CLAUDE_BASE_URL || 'https://api.anthropic.com').replace(/\/$/, '');
-        const model = apiConfig?.model || process.env.CLAUDE_MODEL || 'claude-sonnet-4-20250514';
+        const apiKey = rotateKey(process.env.CLAUDE_API_KEY);
+        const baseUrl = (process.env.CLAUDE_BASE_URL || 'https://api.anthropic.com').replace(/\/$/, '');
+        const model = process.env.CLAUDE_MODEL || 'claude-sonnet-4-20250514';
 
         if (!apiKey) {
             return new Response(
-                JSON.stringify({ error: '请先配置 API Key。点击左下角 ⚙️ → API配置，填入你的 Anthropic Key' }),
+                JSON.stringify({ error: '服务端未配置 CLAUDE_API_KEY，请联系管理员在 .env.local 中配置' }),
                 { status: 400, headers: { 'Content-Type': 'application/json' } }
             );
         }
@@ -254,7 +254,7 @@ export async function POST(request) {
     } catch (error) {
         console.error('Claude 接口错误:', error);
         return new Response(
-            JSON.stringify({ error: '网络连接失败，请检查 API 地址是否正确' }),
+            JSON.stringify({ error: '网络连接失败，请检查服务端 AI 环境变量配置' }),
             { status: 500, headers: { 'Content-Type': 'application/json' } }
         );
     }
@@ -287,7 +287,7 @@ function errorResponse(status, errorText = '') {
             }
         } catch { /* ignore */ }
     }
-    if (!errMsg) errMsg = `Claude 服务返回错误(${status})，请检查 API 配置`;
+    if (!errMsg) errMsg = `Claude 服务返回错误(${status})，请检查服务端 AI 环境变量配置`;
 
     return new Response(
         JSON.stringify({ error: errMsg }),

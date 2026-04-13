@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import dynamic from 'next/dynamic';
+import { useRouter } from 'next/navigation';
 import { useAppStore } from './store/useAppStore';
 import { useI18n } from './lib/useI18n';
 import { Menu, Sparkles, PanelLeftOpen, PanelLeftClose } from 'lucide-react';
@@ -16,15 +17,17 @@ import {
   migrateGlobalChapters,
   saveChapters,
 } from './lib/storage';
-import { initPersistence } from './lib/persistence';
+import { initPersistence, syncFromCloud } from './lib/persistence';
 import { buildContext, compileSystemPrompt, compileUserPrompt, getContextItems, estimateTokens } from './lib/context-engine';
 import { addTokenRecord } from './lib/token-stats';
-import { getProjectSettings, WRITING_MODES, getWritingMode, addSettingsNode, updateSettingsNode, deleteSettingsNode, getSettingsNodes, getActiveWorkId } from './lib/settings';
+import { WRITING_MODES, getWritingMode, addSettingsNode, updateSettingsNode, deleteSettingsNode, getSettingsNodes, getActiveWorkId } from './lib/settings';
 import {
   loadSessionStore, createSession, getActiveSession,
 } from './lib/chat-sessions';
 import { exportProject, importProject } from './lib/project-io';
 import { createSnapshot } from './lib/snapshots';
+import { isCloudBaseConfigured } from './lib/cloudbase';
+import { initAuth, onAuthChange } from './lib/auth';
 // 动态导入编辑器和设定集面板及侧边栏（避免 SSR 问题）
 const Sidebar = dynamic(() => import('./components/Sidebar'), { ssr: false });
 const Editor = dynamic(() => import('./components/Editor'), {
@@ -41,10 +44,7 @@ const SnapshotManager = dynamic(() => import('./components/SnapshotManager'), { 
 const UpdateBanner = dynamic(() => import('./components/UpdateBanner'), { ssr: false });
 const BookInfoPanel = dynamic(() => import('./components/BookInfoPanel'), { ssr: false });
 const CloudSyncIndicator = dynamic(() => import('./components/CloudSyncIndicator'), { ssr: false });
-const LoginModal = dynamic(() => import('./components/LoginModal'), { ssr: false });
 const AccountModal = dynamic(() => import('./components/AccountModal'), { ssr: false });
-const RegisterModal = dynamic(() => import('./components/RegisterModal'), { ssr: false });
-const SyncGuideModal = dynamic(() => import('./components/SyncGuideModal'), { ssr: false });
 
 export default function Home() {
   const {
@@ -63,38 +63,48 @@ export default function Home() {
     contextItems, setContextItems,
     settingsVersion, incrementSettingsVersion,
     sessionStore, setSessionStore,
-    generationArchive, setGenerationArchive,
-    chatStreaming, setChatStreaming
+    chatStreaming, setChatStreaming,
   } = useAppStore();
 
   const { t } = useI18n();
+  const router = useRouter();
+  const [appReady, setAppReady] = useState(false);
+  const [authReady, setAuthReady] = useState(false);
+  const [authUser, setAuthUser] = useState(null);
   const [showHelp, setShowHelp] = useState(false);
   const editorRef = useRef(null);
+  const bootstrappedUidRef = useRef(null);
 
   // ===== AI 助手按钮拖拽位置 =====
-  const [aiTogglePos, setAiTogglePos] = useState(null);
-  const aiToggleDragRef = useRef(null);
-  useEffect(() => {
+  const [aiTogglePos, setAiTogglePos] = useState(() => {
+    if (typeof window === 'undefined') return null;
     try {
-      const saved = JSON.parse(localStorage.getItem('ai-toggle-pos'));
-      if (saved) setAiTogglePos(saved);
-    } catch {}
-  }, []);
-
-  // ===== 侧栏宽度拖拽调整 =====
-  const [leftWidth, setLeftWidth] = useState(280);
-  const [rightWidth, setRightWidth] = useState(380);
-  const draggingRef = useRef(null); // 'left' | 'right' | null
-  const layoutRef = useRef(null);
-
-  // 从 localStorage 恢复宽度
-  useEffect(() => {
+      return JSON.parse(localStorage.getItem('ai-toggle-pos')) || null;
+    } catch {
+      return null;
+    }
+  });
+  const aiToggleDragRef = useRef(null);
+  const [leftWidth, setLeftWidth] = useState(() => {
+    if (typeof window === 'undefined') return 280;
     try {
       const saved = JSON.parse(localStorage.getItem('sidebar-widths') || '{}');
-      if (saved.left) setLeftWidth(saved.left);
-      if (saved.right) setRightWidth(saved.right);
-    } catch { }
-  }, []);
+      return saved.left || 280;
+    } catch {
+      return 280;
+    }
+  });
+  const [rightWidth, setRightWidth] = useState(() => {
+    if (typeof window === 'undefined') return 380;
+    try {
+      const saved = JSON.parse(localStorage.getItem('sidebar-widths') || '{}');
+      return saved.right || 380;
+    } catch {
+      return 380;
+    }
+  });
+  const draggingRef = useRef(null); // 'left' | 'right' | null
+  const layoutRef = useRef(null);
 
   const startDrag = useCallback((side, e) => {
     e.preventDefault();
@@ -144,7 +154,7 @@ export default function Home() {
   }, [leftWidth, rightWidth]);
 
   // 客户端水合后加载 localStorage 中的侧边栏布局偏好
-  useEffect(() => { _hydrateSidebarModes(); }, []);
+  useEffect(() => { _hydrateSidebarModes(); }, [_hydrateSidebarModes]);
 
   // 监听工具栏高度，设置 CSS 变量供侧边栏定位使用
   useEffect(() => {
@@ -199,44 +209,108 @@ export default function Home() {
     }
   }, [t, setChapters, setActiveChapterId]);
 
+  const bootstrapAppData = useCallback(async () => {
+    const workId = getActiveWorkId();
+    if (workId) {
+      setActiveWorkIdStore(workId);
+      // 一次性迁移旧全局章节
+      await migrateGlobalChapters(workId);
+    }
+    await loadChaptersForWork(workId);
+
+    const savedTheme = localStorage.getItem('author-theme') || 'light';
+    setTheme(savedTheme);
+    // 恢复视觉主题（经典纸张 / 现代通透）
+    const savedVisual = localStorage.getItem('author-visual') || 'warm';
+    document.documentElement.setAttribute('data-visual', savedVisual);
+    setWritingMode(getWritingMode());
+
+    // 加载会话数据
+    let store = await loadSessionStore();
+    if (store.sessions.length === 0) {
+      store = createSession(store);
+    }
+    setSessionStore(store);
+  }, [loadChaptersForWork, setActiveWorkIdStore, setTheme, setWritingMode, setSessionStore]);
+
   // 初始化数据
   useEffect(() => {
-    const initData = async () => {
-      // 初始化 CloudBase（如果已配置）
+    let mounted = true;
+    let unsubscribe = null;
+
+    const initializeApp = async () => {
       await initPersistence();
 
-      const workId = getActiveWorkId();
-      if (workId) {
-        setActiveWorkIdStore(workId);
-        // 一次性迁移旧全局章节
-        await migrateGlobalChapters(workId);
+      if (!isCloudBaseConfigured) {
+        if (!mounted) return;
+        setAuthReady(true);
+        setAuthUser(null);
+        setAppReady(true);
+        return;
       }
-      await loadChaptersForWork(workId);
 
-      const savedTheme = localStorage.getItem('author-theme') || 'light';
-      setTheme(savedTheme);
-      // 恢复视觉主题（经典纸张 / 现代通透）
-      const savedVisual = localStorage.getItem('author-visual') || 'warm';
-      document.documentElement.setAttribute('data-visual', savedVisual);
-      setWritingMode(getWritingMode());
+      unsubscribe = onAuthChange(async (user) => {
+        if (!mounted) return;
+        setAuthReady(true);
+        setAuthUser(user);
 
-      // 加载会话数据
-      let store = await loadSessionStore();
-      if (store.sessions.length === 0) {
-        store = createSession(store);
+        if (!user) {
+          bootstrappedUidRef.current = null;
+          setAppReady(false);
+          return;
+        }
+
+        if (bootstrappedUidRef.current === user.uid) return;
+        bootstrappedUidRef.current = user.uid;
+
+        try {
+          await syncFromCloud();
+        } catch (e) {
+          console.warn('[auth bootstrap] syncFromCloud failed:', e);
+        }
+
+        try {
+          await bootstrapAppData();
+        } catch (e) {
+          console.error('[auth bootstrap] bootstrapAppData failed:', e);
+        }
+
+        if (!mounted) return;
+        setAppReady(true);
+      });
+
+      try {
+        await initAuth();
+      } catch (e) {
+        console.error('[auth bootstrap] initAuth failed:', e);
+        if (!mounted) return;
+        setAuthReady(true);
+        setAuthUser(null);
       }
-      setSessionStore(store);
     };
-    initData();
-  }, []);
 
-  // 切换作品时重新加载章节
+
+    initializeApp();
+
+    return () => {
+      mounted = false;
+      if (unsubscribe) unsubscribe();
+    };
+  }, [bootstrapAppData]);
+
   const prevWorkIdRef = useRef(activeWorkId);
+
   useEffect(() => {
+    if (!authReady || authUser) return;
+    router.replace('/login?next=/');
+  }, [authReady, authUser, router]);
+
+  useEffect(() => {
+    if (!appReady || !authUser) return;
     if (prevWorkIdRef.current === activeWorkId) return;
     prevWorkIdRef.current = activeWorkId;
     loadChaptersForWork(activeWorkId);
-  }, [activeWorkId, loadChaptersForWork]);
+  }, [activeWorkId, loadChaptersForWork, appReady, authUser]);
 
   // 章节指纹 —— 当章节改名或拖动排序时会变化，触发上下文列表重建
   const chaptersFingerprint = useMemo(
@@ -246,7 +320,7 @@ export default function Home() {
 
   // 初始化上下文条目和勾选状态（设定集 + 章节 + 对话历史）
   useEffect(() => {
-    if (!activeChapterId) return;
+    if (!appReady || !authUser || !activeChapterId) return;
 
     const loadContext = async () => {
       const baseItems = await getContextItems(activeChapterId, chapters);
@@ -279,7 +353,7 @@ export default function Home() {
     };
 
     loadContext();
-  }, [activeChapterId, settingsVersion, chatHistory.length, chaptersFingerprint]);
+  }, [activeChapterId, settingsVersion, chatHistory.length, chaptersFingerprint, appReady, authUser]);
 
   // 定时自动存档 (每 15 分钟)
   useEffect(() => {
@@ -323,25 +397,10 @@ export default function Home() {
       const systemPrompt = compileSystemPrompt(context, mode);
       const userPrompt = compileUserPrompt(mode, text, instruction);
 
-      const { apiConfig } = getProjectSettings();
-      const pType = apiConfig?.providerType || apiConfig?.provider;
-      const apiEndpoint = ['gemini-native', 'custom-gemini'].includes(pType) ? '/api/ai/gemini'
-        : pType === 'openai-responses' ? '/api/ai/responses'
-          : (['claude', 'custom-claude'].includes(pType) || apiConfig?.apiFormat === 'anthropic') ? '/api/ai/claude'
-            : '/api/ai';
-
-      const res = await fetch(apiEndpoint, {
+      const res = await fetch('/api/ai', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          systemPrompt, userPrompt, apiConfig,
-          ...(apiConfig?.useAdvancedParams ? {
-            ...(apiConfig.enableMaxOutputTokens ? { maxTokens: apiConfig.maxOutputTokens || 65536 } : {}),
-            ...(apiConfig.enableTemperature ? { temperature: apiConfig.temperature ?? 1 } : {}),
-            ...(apiConfig.enableTopP ? { topP: apiConfig.topP ?? 0.95 } : {}),
-            ...(apiConfig.enableReasoningEffort ? { reasoningEffort: apiConfig.reasoningEffort || 'auto' } : {}),
-          } : {}),
-        }),
+        body: JSON.stringify({ systemPrompt, userPrompt }),
         signal,
       });
 
@@ -392,8 +451,8 @@ export default function Home() {
           cachedTokens: usageData.cachedTokens || 0,
           durationMs,
           source: 'inline',
-          provider: apiConfig?.provider || 'unknown',
-          model: apiConfig?.model || 'unknown',
+          provider: 'server-env',
+          model: 'server-env',
         });
       } else {
         // API 未返回 usage，客户端估算
@@ -405,8 +464,8 @@ export default function Home() {
           totalTokens: estPrompt + estCompletion,
           durationMs,
           source: 'inline',
-          provider: apiConfig?.provider || 'unknown',
-          model: apiConfig?.model || 'unknown',
+          provider: 'server-env',
+          model: 'server-env',
         });
       }
     } catch (err) {
@@ -417,7 +476,7 @@ export default function Home() {
         throw err;
       }
     }
-  }, [activeChapterId, contextSelection, showToast]);
+  }, [activeChapterId, contextSelection, showToast, t]);
 
   // AI 生成存档 — Editor 的 ghost text 操作会调用此函数
   const handleArchiveGeneration = useCallback((entry) => {
@@ -438,7 +497,29 @@ export default function Home() {
       editorRef.current.insertText?.(text);
       showToast(t('page.toastInserted'), 'success');
     }
-  }, [showToast]);
+  }, [showToast, t]);
+
+
+  if (!isCloudBaseConfigured) {
+    return (
+      <div className="app-layout" style={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'var(--bg-canvas)' }}>
+        <div style={{ textAlign: 'center', maxWidth: 440, padding: 24 }}>
+          <h2 style={{ marginBottom: 12, color: 'var(--text-primary)' }}>CloudBase 未配置</h2>
+          <p style={{ color: 'var(--text-secondary)', lineHeight: 1.7 }}>
+            当前版本要求登录后才能使用。请先配置 NEXT_PUBLIC_CLOUDBASE_ENV_ID 与 NEXT_PUBLIC_CLOUDBASE_ACCESS_KEY。
+          </p>
+        </div>
+      </div>
+    );
+  }
+
+  if (!authReady) {
+    return null;
+  }
+
+  if (!authUser) {
+    return null;
+  }
 
   return (
     <div ref={layoutRef} className={`app-layout${aiSidebarOpen ? ' ai-open' : ''}${!aiSidebarPushMode ? ' ai-overlay' : ''}${sidebarPushMode && sidebarOpen ? ' sidebar-push-open' : ''}`} style={{ '--sidebar-w': leftWidth + 'px', '--ai-sidebar-w': rightWidth + 'px' }}>
@@ -449,7 +530,7 @@ export default function Home() {
       <header className="top-header-bar">
         <div className="top-header-left">
           <div className="top-header-logo">
-            <span>代信</span>AI创作
+            <span>代信</span>创作Agent
           </div>
         </div>
         <div className="top-header-right">
@@ -588,10 +669,7 @@ export default function Home() {
       <HelpPanel open={showHelp} onClose={() => setShowHelp(false)} />
 
       {/* ===== 首次引导 ===== */}
-      <LoginModal />
       <AccountModal />
-      <RegisterModal />
-      <SyncGuideModal />
     </div>
   );
 }

@@ -10,16 +10,16 @@ import { rotateKey } from '../../../lib/keyRotator';
 
 export async function POST(request) {
     try {
-        const { systemPrompt, userPrompt, apiConfig, maxTokens, temperature, topP, tools: toolsConfig } = await request.json();
-        const proxyUrl = apiConfig?.proxyUrl || '';
+        const { systemPrompt, userPrompt, maxTokens, temperature, topP, tools: toolsConfig } = await request.json();
+        const proxyUrl = process.env.AI_PROXY_URL || '';
 
-        const apiKey = rotateKey(apiConfig?.apiKey || process.env.OPENAI_API_KEY);
-        const baseUrl = (apiConfig?.baseUrl || process.env.OPENAI_BASE_URL || 'https://api.openai.com/v1').replace(/\/$/, '');
-        const model = apiConfig?.model || process.env.OPENAI_MODEL || 'gpt-4o-mini';
+        const apiKey = rotateKey(process.env.OPENAI_API_KEY);
+        const baseUrl = (process.env.OPENAI_BASE_URL || 'https://api.openai.com/v1').replace(/\/$/, '');
+        const model = process.env.OPENAI_MODEL || 'gpt-4o-mini';
 
         if (!apiKey) {
             return new Response(
-                JSON.stringify({ error: '请先配置 API Key。点击左下角 ⚙️ → API配置，填入你的 Key' }),
+                JSON.stringify({ error: '服务端未配置 OPENAI_API_KEY，请联系管理员在 .env.local 中配置' }),
                 { status: 400, headers: { 'Content-Type': 'application/json' } }
             );
         }
@@ -39,7 +39,7 @@ export async function POST(request) {
         };
 
         // 添加思考等级（默认 medium，不受高级参数面板影响）
-        const rawEffort = apiConfig?.reasoningEffort;
+        const rawEffort = process.env.OPENAI_REASONING_EFFORT;
         const effort = (!rawEffort || rawEffort === 'auto') ? 'medium' : rawEffort;
         if (effort !== 'none' && ['low', 'medium', 'high', 'xhigh'].includes(effort)) {
             requestBody.reasoning = { effort, summary: 'auto' };
@@ -88,7 +88,7 @@ export async function POST(request) {
                     }
                 } catch { /* ignore */ }
             }
-            if (!errMsg) errMsg = `AI服务返回错误(${response.status})，请检查 API 配置`;
+            if (!errMsg) errMsg = `AI服务返回错误(${response.status})，请检查服务端 AI 环境变量配置`;
 
             return new Response(
                 JSON.stringify({ error: errMsg }),
@@ -206,7 +206,7 @@ export async function POST(request) {
     } catch (error) {
         console.error('Responses API 接口错误:', error);
         return new Response(
-            JSON.stringify({ error: '网络连接失败，请检查 API 地址是否正确' }),
+            JSON.stringify({ error: '网络连接失败，请检查服务端 AI 环境变量配置' }),
             { status: 500, headers: { 'Content-Type': 'application/json' } }
         );
     }

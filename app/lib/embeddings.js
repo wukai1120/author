@@ -7,13 +7,10 @@ const EMBED_BACKOFF_MS = 60000;
 /**
  * 获取文本的向量化表示 (Embeddings)
  * @param {string} text 要向量化的文本
- * @param {object} apiConfig 从 getProjectSettings().apiConfig 传入的配置
  * @returns {Promise<number[]|null>} 浮点数数组形式的向量
  */
-export async function getEmbedding(text, apiConfig) {
+export async function getEmbedding(text) {
     if (!text || text.trim() === '') return null;
-    // 没有配置 Embedding Key 时静默跳过，不发请求
-    if (!apiConfig?.embeddingApiKey && !apiConfig?.apiKey) return null;
     // 如果上次失败的退避期还没过，直接跳过
     if (Date.now() < _embedErrorUntil) return null;
 
@@ -21,7 +18,7 @@ export async function getEmbedding(text, apiConfig) {
         const res = await fetch('/api/embed', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ text, apiConfig })
+            body: JSON.stringify({ text })
         });
 
         if (!res.ok) {

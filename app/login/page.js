@@ -1,55 +1,79 @@
 'use client';
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useMemo } from 'react';
+import { useRouter, useSearchParams } from 'next/navigation';
 import { X, Mail, Lock, XCircle, ArrowLeft } from 'lucide-react';
-import { useAppStore } from '../store/useAppStore';
 import { useI18n } from '../lib/useI18n';
-import WechatIcon from './icons/WechatIcon';
+import WechatIcon from '../components/icons/WechatIcon';
 
-/**
- * 独立登录弹窗
- * 支持邮箱 OTP 验证码登录 + 微信登录
- */
-export default function LoginModal() {
-    const { showLoginModal, setShowLoginModal, setShowRegisterModal } = useAppStore();
+function getSafeNext(next) {
+    if (!next || typeof next !== 'string') return '/';
+    if (!next.startsWith('/') || next.startsWith('//')) return '/';
+    return next;
+}
+
+export default function LoginPage() {
+    const router = useRouter();
+    const searchParams = useSearchParams();
+    const { t } = useI18n();
+
+    const nextPath = useMemo(() => getSafeNext(searchParams.get('next')), [searchParams]);
+
     const [authEmail, setAuthEmail] = useState('');
     const [otpCode, setOtpCode] = useState('');
-    const [step, setStep] = useState('email'); // 'email' | 'otp'
+    const [step, setStep] = useState('email');
     const [verifyFn, setVerifyFn] = useState(null);
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState('');
     const [countdown, setCountdown] = useState(0);
-    const { t } = useI18n();
+    const [cloudBaseAvailable, setCloudBaseAvailable] = useState(false);
+    const [authChecking, setAuthChecking] = useState(true);
 
-    const closeModal = useCallback(() => setShowLoginModal(false), [setShowLoginModal]);
-
-    useEffect(() => {
-        if (showLoginModal) {
-            setAuthEmail('');
-            setOtpCode('');
-            setStep('email');
-            setVerifyFn(null);
-            setError('');
-            setCountdown(0);
-        }
-    }, [showLoginModal]);
-
-    // 倒计时
     useEffect(() => {
         if (countdown <= 0) return;
         const timer = setTimeout(() => setCountdown(c => c - 1), 1000);
         return () => clearTimeout(timer);
     }, [countdown]);
 
-    if (!showLoginModal) return null;
+    useEffect(() => {
+        let unmounted = false;
+        let unsubscribe = null;
+
+        (async () => {
+            try {
+                const { isCloudBaseConfigured } = await import('../lib/cloudbase');
+                if (!isCloudBaseConfigured || unmounted) return;
+                setCloudBaseAvailable(true);
+                const auth = await import('../lib/auth');
+                await auth.initAuth();
+                unsubscribe = auth.onAuthChange(user => {
+                    if (unmounted) return;
+                    if (user) {
+                        router.replace(nextPath);
+                        return;
+                    }
+                    setAuthChecking(false);
+                });
+            } catch {
+                if (!unmounted) setAuthChecking(false);
+            }
+        })();
+
+        return () => {
+            unmounted = true;
+            if (unsubscribe) unsubscribe();
+        };
+    }, [nextPath, router]);
+
+    if (authChecking) return null;
 
     const handleSendOtp = async () => {
-        if (!authEmail) return;
+        if (!authEmail || !cloudBaseAvailable) return;
         setLoading(true);
         setError('');
         try {
             const auth = await import('../lib/auth');
-            const result = await auth.sendEmailOtp(authEmail);
+            const result = await auth.sendEmailOtpUnified(authEmail);
             setVerifyFn(() => result.verifyOtp);
             setStep('otp');
             setCountdown(60);
@@ -66,10 +90,7 @@ export default function LoginModal() {
         setError('');
         try {
             await verifyFn(otpCode);
-            const { syncFromCloud } = await import('../lib/persistence');
-            const merged = await syncFromCloud();
-            closeModal();
-            if (merged > 0) window.location.reload();
+            router.replace(nextPath);
         } catch (err) {
             setError(err.message || '验证码错误');
         } finally {
@@ -78,6 +99,7 @@ export default function LoginModal() {
     };
 
     const handleWechatLogin = async () => {
+        if (!cloudBaseAvailable) return;
         setLoading(true);
         setError('');
         try {
@@ -89,19 +111,13 @@ export default function LoginModal() {
         }
     };
 
-    const switchToRegister = () => {
-        setShowLoginModal(false);
-        setTimeout(() => setShowRegisterModal(true), 150);
-    };
-
     return (
-        <div className="login-modal-overlay" onClick={closeModal}>
+        <div className="login-modal-overlay">
             <div className="login-modal" onClick={e => e.stopPropagation()}>
-                <button className="login-modal-close" onClick={closeModal}>
+                <button className="login-modal-close" onClick={() => router.push('/')}>
                     <X size={18} />
                 </button>
 
-                {/* 头部 */}
                 <div className="login-modal-header">
                     <div className="login-modal-icon">
                         <img src="/author-logo.png" alt="Author" className="login-modal-logo-img" />
@@ -110,8 +126,13 @@ export default function LoginModal() {
                     <p className="login-modal-desc">{t('loginModal.desc')}</p>
                 </div>
 
+                {!cloudBaseAvailable && (
+                    <div className="login-modal-error">
+                        <XCircle size={13} /> CloudBase 未配置，当前不可登录
+                    </div>
+                )}
+
                 {step === 'email' ? (
-                    /* 第一步：输入邮箱 */
                     <>
                         <div className="login-modal-form">
                             <div className="login-modal-input-wrap">
@@ -137,13 +158,12 @@ export default function LoginModal() {
                         <button
                             className="login-modal-submit-btn"
                             onClick={handleSendOtp}
-                            disabled={loading || !authEmail}
+                            disabled={loading || !authEmail || !cloudBaseAvailable}
                         >
                             {loading ? '发送中...' : '发送验证码'}
                         </button>
                     </>
                 ) : (
-                    /* 第二步：输入验证码 */
                     <>
                         <div className="login-modal-form">
                             <div style={{ fontSize: 13, color: 'var(--text-muted)', marginBottom: 8, textAlign: 'center' }}>
@@ -196,20 +216,22 @@ export default function LoginModal() {
                     </>
                 )}
 
-                {/* 分隔线 + 微信登录 */}
                 <div className="login-modal-divider"><span>{t('loginModal.or') || '或'}</span></div>
 
                 <button
                     className="login-modal-google-btn"
                     onClick={handleWechatLogin}
-                    disabled={loading}
+                    disabled={loading || !cloudBaseAvailable}
                 >
-                    {typeof WechatIcon !== 'undefined' ? <WechatIcon /> : null}
+                    <WechatIcon />
                     微信登录
                 </button>
 
                 <div className="login-modal-switch">
-                    {t('loginModal.noAccount')}<button onClick={switchToRegister}>{t('loginModal.registerNow')}</button>
+                    {t('loginModal.noAccount')}
+                    <button onClick={() => router.push(`/register?next=${encodeURIComponent(nextPath)}`)}>
+                        {t('loginModal.registerNow')}
+                    </button>
                 </div>
             </div>
         </div>

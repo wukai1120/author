@@ -3,7 +3,7 @@
 import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { useAppStore } from '../store/useAppStore';
 import { useI18n } from '../lib/useI18n';
-import { getSettingsNodes, updateSettingsNode, deleteSettingsNode, saveSettingsNodes, getActiveWorkId, getAllWorks, getChatApiConfig, addWork, removeWork, addSettingsNode, renameWork } from '../lib/settings';
+import { getSettingsNodes, updateSettingsNode, deleteSettingsNode, saveSettingsNodes, getActiveWorkId, getAllWorks, addWork, removeWork, addSettingsNode, renameWork } from '../lib/settings';
 import { getChapters } from '../lib/storage';
 import { createPortal } from 'react-dom';
 import { promptInput } from '../lib/promptInput';
@@ -1026,13 +1026,6 @@ export default function BookInfoPanel() {
                                                 onClick={async () => {
                                                     setAiEvalLoading(true);
                                                     try {
-                                                        const apiConfig = getChatApiConfig();
-                                                        if (!apiConfig?.apiKey) { setAiEval({ _error: '请先在设置中配置AI API' }); return; }
-                                                        const pType = apiConfig?.providerType || apiConfig?.provider;
-                                                        const apiEndpoint = ['gemini-native', 'custom-gemini'].includes(pType) ? '/api/ai/gemini'
-                                                            : pType === 'openai-responses' ? '/api/ai/responses'
-                                                                : (['claude', 'custom-claude'].includes(pType) || apiConfig?.apiFormat === 'anthropic') ? '/api/ai/claude'
-                                                                    : '/api/ai';
                                                         const fields = [
                                                             { key: 'title', label: '作品名称', value: bookData.title },
                                                             { key: 'genre', label: '题材类型', value: bookData.genre },
@@ -1045,9 +1038,9 @@ export default function BookInfoPanel() {
                                                         const filledFields = fields.filter(f => f.value?.trim());
                                                         if (filledFields.length === 0) { setAiEval({ _error: '请先填写至少一个字段' }); return; }
                                                         const prompt = '你是一位资深网文编辑，请对以下作品信息进行专业评价。对每个已填写的字段给出1-5星评分、简短评价（一句话）、和具体修改建议。注意评分标准：1星=非常糟糕 2星=待改进 3星=可以 4星=优秀 5星=极佳。\n\n作品信息如下：\n' + filledFields.map(f => f.label + ': ' + f.value).join('\n') + '\n\n请以以下JSON格式回复，不要加任何其他文字：\n{\n' + filledFields.map(f => '  "' + f.key + '": { "score": 评分, "feedback": "一句话评价", "suggestion": "建议的内容，如果当前已经很好则保持原文" }').join(',\n') + '\n}';
-                                                        const res = await fetch(apiEndpoint, {
+                                                        const res = await fetch('/api/ai', {
                                                             method: 'POST', headers: { 'Content-Type': 'application/json' },
-                                                            body: JSON.stringify({ systemPrompt: '你是一位专业的网文编辑，只输出JSON。', userPrompt: prompt, apiConfig }),
+                                                            body: JSON.stringify({ systemPrompt: '你是一位专业的网文编辑，只输出JSON。', userPrompt: prompt }),
                                                         });
                                                         const contentType = res.headers.get('content-type') || '';
                                                         let fullText = '';
@@ -1073,6 +1066,12 @@ export default function BookInfoPanel() {
                                                             const data = await res.json();
                                                             fullText = data.text || data.error || '';
                                                         }
+
+                                                        if (!res.ok) {
+                                                            setAiEval({ _error: fullText || 'AI服务暂不可用，请联系管理员检查服务端配置' });
+                                                            return;
+                                                        }
+
                                                         const jsonMatch = fullText.match(/\{[\s\S]*\}/);
                                                         if (jsonMatch) {
                                                             try { setAiEval(JSON.parse(jsonMatch[0])); } catch (_e) { setAiEval({ _error: 'AI返回格式异常，请重试' }); }

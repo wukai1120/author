@@ -57,18 +57,9 @@ const store = create((set, get) => ({
     showSettings: false,
     setShowSettings: (show, tab) => set({ showSettings: (show === true ? (tab || 'settings') : show) || false }),
 
-    showLoginModal: false,
-    setShowLoginModal: (show) => set({ showLoginModal: !!show }),
-
-    showSyncGuideModal: false,
-    setShowSyncGuideModal: (show) => set({ showSyncGuideModal: !!show }),
-
     showAccountModal: false,
     accountModalSwitcher: false,
     setShowAccountModal: (show, switcher = false) => set({ showAccountModal: !!show, accountModalSwitcher: !!switcher }),
-
-    showRegisterModal: false,
-    setShowRegisterModal: (show) => set({ showRegisterModal: !!show }),
 
     showBookInfo: false,
     setShowBookInfo: (show) => set({ showBookInfo: !!show }),
@@ -207,6 +198,7 @@ export function useAppStore(selector) {
 
     return proxy;
 }
+
 
 // 保留静态方法供非组件代码使用
 useAppStore.getState = store.getState;

@@ -24,7 +24,6 @@ import { useEffect, useCallback, useRef, useState, useMemo, useId, forwardRef, u
 import { ChevronUp, ChevronDown, Undo2, Redo2, Wand2 } from 'lucide-react';
 import { ragRecommend } from '../lib/context-engine';
 import { useAppStore } from '../store/useAppStore';
-import ModelPicker from './ModelPicker';
 import { PanelLeftOpen, PanelLeftClose } from 'lucide-react';
 
 // ==================== AI 模式配置 ====================
@@ -1678,15 +1677,6 @@ function EditorToolbar({ editor, margins, setMargins }) {
 
     return (
         <div className="editor-toolbar" ref={toolbarRef} onMouseDown={e => { if (e.target.tagName !== 'INPUT') e.preventDefault(); }}>
-            {/* 编辑器 AI 模型切换器 */}
-            <ModelPicker target="editor" dropDirection="down" />
-
-            {/* 嵌入模型快切 */}
-            <ModelPicker target="embed" dropDirection="down" />
-
-            <div className="toolbar-divider" />
-
-            {/* 一键排版/撤销/重做 */}
             <div className="toolbar-group">
                 <button className="toolbar-btn" onClick={() => editor.chain().focus().undo().run()} title="撤销 (Ctrl+Z)"><Undo2 size={16} strokeWidth={2.5} /></button>
                 <button className="toolbar-btn" onClick={handleAutoFormat} title="一键排版 (去除多余空格与空行)"><Wand2 size={16} strokeWidth={2.5} /></button>

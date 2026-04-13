@@ -7,56 +7,25 @@ import { rotateKey } from '../../lib/keyRotator';
 
 export async function POST(request) {
     try {
-        const { text, apiConfig } = await request.json();
-        const proxyUrl = apiConfig?.proxyUrl || '';
-
-        const isCustomEmbed = apiConfig?.useCustomEmbed;
-        // 多实例架构下，apiConfig.provider 可能是实例 key，需回退到 providerType
-        const rawProvider = isCustomEmbed ? apiConfig.embedProvider : (apiConfig?.providerType || apiConfig?.provider || 'zhipu');
-        const provider = rawProvider;
-        const apiKey = rotateKey(isCustomEmbed ? (apiConfig.embedApiKey || apiConfig?.apiKey) : apiConfig?.apiKey);
-
-        // 自动识别默认填写或遗留的智谱URL并矫正为对应官方URL
-        let defaultBaseUrl = ['gemini-native', 'custom-gemini'].includes(provider) ? 'https://generativelanguage.googleapis.com/v1beta' : 'https://open.bigmodel.cn/api/paas/v4';
-
-        let rawBaseUrl;
-        if (isCustomEmbed) {
-            rawBaseUrl = apiConfig.embedBaseUrl;
-        } else {
-            // 如果是自定义提供商且没开独立Embed，默认继承对聊的baseUrl
-            rawBaseUrl = apiConfig?.baseUrl || defaultBaseUrl;
-        }
-
-        if (!rawBaseUrl || (['gemini-native', 'custom-gemini'].includes(provider) && rawBaseUrl.includes('open.bigmodel.cn'))) {
-            rawBaseUrl = defaultBaseUrl;
-        }
-
-        const baseUrl = rawBaseUrl.replace(/\/$/, '');
-
-        let embedModelName;
-        if (isCustomEmbed) {
-            embedModelName = apiConfig.embedModel || 'embedding-3';
-        } else if (provider === 'custom') {
-            // 如果没开独立embed，但选了custom，默认用text-embedding-v3-small或用户主模型
-            embedModelName = 'text-embedding-v3-small';
-        } else {
-            embedModelName = provider === 'zhipu' ? 'embedding-3' : 'text-embedding-v3-small';
-        }
-
-        if (!apiKey) {
-            return new Response(JSON.stringify({ error: isCustomEmbed ? '请在API配置中填写独立的 Embedding API Key' : '请先配置 API Key' }), { status: 400 });
-        }
+        const { text } = await request.json();
+        const proxyUrl = process.env.AI_PROXY_URL || '';
 
         if (!text || typeof text !== 'string') {
             return new Response(JSON.stringify({ error: '无效的文本输入' }), { status: 400 });
         }
 
+        const provider = (process.env.EMBED_PROVIDER || process.env.AI_PROVIDER || 'openai').trim().toLowerCase();
         let embeddings = [];
 
-        if (['gemini-native', 'custom-gemini'].includes(provider)) {
-            const geminiModel = embedModelName || 'text-embedding-004';
+        if (provider === 'gemini' || provider === 'google' || provider === 'google-gemini') {
+            const apiKey = rotateKey(process.env.GEMINI_API_KEY);
+            if (!apiKey) {
+                return new Response(JSON.stringify({ error: '服务端未配置 GEMINI_API_KEY，请联系管理员在 .env.local 中配置' }), { status: 400 });
+            }
+
+            const baseUrl = (process.env.GEMINI_BASE_URL || 'https://generativelanguage.googleapis.com/v1beta').replace(/\/$/, '');
+            const geminiModel = process.env.EMBED_MODEL || 'text-embedding-004';
             const url = `${baseUrl}/models/${geminiModel}:embedContent?key=${apiKey}`;
-            console.log('Fetching Gemini Embeddings:', url);
             const res = await proxyFetch(url, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
@@ -71,9 +40,15 @@ export async function POST(request) {
                 throw new Error(`Gemini Embedding Error: ${errText}`);
             }
             const data = await res.json();
-            embeddings = data.embedding.values;
+            embeddings = data.embedding?.values || [];
         } else {
-            // OpenAI 兼容格式
+            const apiKey = rotateKey(process.env.API_KEY || process.env.ZHIPU_API_KEY || process.env.OPENAI_API_KEY);
+            if (!apiKey) {
+                return new Response(JSON.stringify({ error: '服务端未配置 Embedding API Key，请联系管理员在 .env.local 中配置' }), { status: 400 });
+            }
+
+            const baseUrl = (process.env.EMBED_BASE_URL || process.env.API_BASE_URL || process.env.OPENAI_BASE_URL || 'https://open.bigmodel.cn/api/paas/v4').replace(/\/$/, '');
+            const embedModelName = process.env.EMBED_MODEL || 'embedding-3';
             const url = `${baseUrl}/embeddings`;
 
             const res = await proxyFetch(url, {
@@ -93,7 +68,7 @@ export async function POST(request) {
                 throw new Error(`Embedding API Error: ${errText}`);
             }
             const data = await res.json();
-            embeddings = data.data[0].embedding;
+            embeddings = data.data?.[0]?.embedding || [];
         }
 
         return new Response(JSON.stringify({ embedding: embeddings }), {

@@ -109,32 +109,6 @@ const DEFAULT_SETTINGS = {
     // 用户自定义系统提示词（为空时使用内置默认提示词）
     customPrompt: '',
 
-    // API 配置 — 用户自己填入 API Key
-    apiConfig: {
-        provider: 'zhipu',   // 预设供应商标识
-        apiKey: '',
-        baseUrl: 'https://open.bigmodel.cn/api/paas/v4',
-        model: 'glm-4-flash',
-        // 每个供应商独立保存的配置 { [key]: { apiKey, baseUrl, model, apiFormat? } }
-        providerConfigs: {},
-        useCustomEmbed: false, // 是否使用独立的 Embedding API
-        embedProvider: 'zhipu',
-        embedApiKey: '',
-        embedBaseUrl: 'https://open.bigmodel.cn/api/paas/v4',
-        embedModel: 'embedding-3',
-        // 高级模型参数
-        useAdvancedParams: false,   // 总开关：关闭时使用默认值
-        temperature: 1,             // 0 ~ 2
-        topP: 0.95,                 // 0 ~ 1
-        maxContextLength: 200000,   // 最大上下文 token
-        maxOutputTokens: 65536,     // 最大输出 token
-        reasoningEffort: 'auto',    // 思考层级: auto / low / medium / high
-        proxyUrl: '',               // HTTP 代理地址，如 http://127.0.0.1:7890
-    },
-
-    // 对话侧栏独立模型配置（null = 跟随主配置）
-    chatApiConfig: null,
-
     // 作品基本信息
     bookInfo: {
         title: '',
@@ -209,67 +183,16 @@ export function getProjectSettings() {
         const parsed = data ? JSON.parse(data) : null;
         const settings = { ...DEFAULT_SETTINGS, ...(parsed || {}) };
 
-        // 从独立的 author-api-config 中读取 API 设置（防止从云同步覆盖或缺失）
-        const apiDataRaw = localStorage.getItem('author-api-config');
-        if (apiDataRaw) {
-            try {
-                const apiData = JSON.parse(apiDataRaw);
-                settings.apiConfig = apiData.apiConfig || settings.apiConfig;
-                settings.chatApiConfig = apiData.chatApiConfig !== undefined ? apiData.chatApiConfig : settings.chatApiConfig;
-            } catch { /* ignore */ }
+        // 清理历史遗留的前端 API 配置字段
+        if (settings.apiConfig !== undefined || settings.chatApiConfig !== undefined) {
+            delete settings.apiConfig;
+            delete settings.chatApiConfig;
+            localStorage.setItem(SETTINGS_KEY, JSON.stringify(settings));
         }
 
-        // 自动迁移：如果旧的 SETTINGS_KEY 里还存在 apiConfig（特别是包含配置时），并且还没有独立的 author-api-config，分离它
-        if (data && !apiDataRaw && settings.apiConfig) {
-             const apiConfigData = {
-                 apiConfig: settings.apiConfig,
-                 chatApiConfig: settings.chatApiConfig
-             };
-             localStorage.setItem('author-api-config', JSON.stringify(apiConfigData));
+        // 清理历史 author-api-config 本地存储
+        localStorage.removeItem('author-api-config');
 
-             const syncSettings = { ...settings };
-             delete syncSettings.apiConfig;
-             delete syncSettings.chatApiConfig;
-             localStorage.setItem(SETTINGS_KEY, JSON.stringify(syncSettings));
-        }
-        // 自动迁移：旧数据没有 providerConfigs 时，将当前活跃供应商的配置种入
-        if (settings.apiConfig && !settings.apiConfig.providerConfigs) {
-            settings.apiConfig.providerConfigs = {};
-        }
-        if (settings.apiConfig?.apiKey && settings.apiConfig.providerConfigs &&
-            Object.keys(settings.apiConfig.providerConfigs).length === 0) {
-            const p = settings.apiConfig.provider;
-            if (p) {
-                settings.apiConfig.providerConfigs[p] = {
-                    apiKey: settings.apiConfig.apiKey,
-                    baseUrl: settings.apiConfig.baseUrl || '',
-                    model: settings.apiConfig.model || '',
-                    apiFormat: settings.apiConfig.apiFormat || '',
-                };
-            }
-        }
-        // 自动迁移：为 providerConfigs 中的每个供应商补全 models 数组 + providerType
-        if (settings.apiConfig?.providerConfigs) {
-            for (const [key, cfg] of Object.entries(settings.apiConfig.providerConfigs)) {
-                if (!cfg.models) {
-                    // 首次迁移：models 字段不存在时，从当前活跃 model 初始化
-                    cfg.models = cfg.model ? [cfg.model] : [];
-                }
-                // 注意：不再自动将 cfg.model 注入 cfg.models，否则用户无法从快切列表中删除模型
-                // 自动迁移：补全 providerType 字段（多实例支持）
-                if (!cfg.providerType) {
-                    // 旧数据 key 本身就是 providerType，实例 key 含下划线后缀
-                    cfg.providerType = key.replace(/_[a-z0-9]+$/, '');
-                }
-            }
-        }
-        // 在返回前，将 providerType 写入 apiConfig 顶层，方便下游直接使用
-        if (settings.apiConfig?.provider && settings.apiConfig.providerConfigs) {
-            const activeCfg = settings.apiConfig.providerConfigs[settings.apiConfig.provider];
-            if (activeCfg?.providerType) {
-                settings.apiConfig.providerType = activeCfg.providerType;
-            }
-        }
         return settings;
     } catch {
         return DEFAULT_SETTINGS;
@@ -279,14 +202,7 @@ export function getProjectSettings() {
 // 保存项目设定（同步写 localStorage + 异步写服务端）
 export function saveProjectSettings(settings) {
     if (typeof window === 'undefined') return;
-    // 抽出 apiConfig 和 chatApiConfig，单独存入本地，不要同步到云端
-    const apiConfigData = {
-        apiConfig: settings.apiConfig,
-        chatApiConfig: settings.chatApiConfig,
-    };
-    localStorage.setItem('author-api-config', JSON.stringify(apiConfigData));
 
-    // 从 settings 拷贝一份剔除 API 配置后用于云同步
     const syncSettings = { ...settings };
     delete syncSettings.apiConfig;
     delete syncSettings.chatApiConfig;
@@ -296,180 +212,6 @@ export function saveProjectSettings(settings) {
     persistSet(SETTINGS_KEY, syncSettings).catch(() => { });
 }
 
-/**
- * 获取对话侧栏使用的 API 配置。
- * 如果已配置独立的 chatApiConfig 则使用它，否则回退到主 apiConfig。
- * tools 和 searchConfig 始终从主配置继承（如果 chatApiConfig 中缺失）。
- */
-export function getChatApiConfig() {
-    const settings = getProjectSettings();
-    const chat = settings.chatApiConfig;
-    const base = (chat && chat.provider) ? chat : settings.apiConfig;
-    const main = settings.apiConfig || {};
-
-    let result;
-    if (chat && chat.provider) {
-        // 从主配置继承 tools 和 searchConfig（如果 chat 中缺失）
-        result = {
-            ...chat,
-            tools: chat.tools || main.tools,
-            searchConfig: chat.searchConfig || main.searchConfig,
-            // 继承高级参数设置
-            useAdvancedParams: chat.useAdvancedParams ?? main.useAdvancedParams,
-            enableTemperature: chat.enableTemperature ?? main.enableTemperature,
-            enableTopP: chat.enableTopP ?? main.enableTopP,
-            enableMaxContextLength: chat.enableMaxContextLength ?? main.enableMaxContextLength,
-            enableMaxOutputTokens: chat.enableMaxOutputTokens ?? main.enableMaxOutputTokens,
-            enableReasoningEffort: chat.enableReasoningEffort ?? main.enableReasoningEffort,
-            temperature: chat.temperature ?? main.temperature,
-            topP: chat.topP ?? main.topP,
-            maxContextLength: chat.maxContextLength ?? main.maxContextLength,
-            maxOutputTokens: chat.maxOutputTokens ?? main.maxOutputTokens,
-            reasoningEffort: chat.reasoningEffort || main.reasoningEffort,
-            // 继承代理设置（代理是全局配置，不分主/聊天）
-            proxyUrl: chat.proxyUrl || main.proxyUrl,
-        };
-    } else {
-        result = { ...main };
-    }
-
-    // 应用模型级参数覆盖（如果存在）
-    const instanceKey = result.provider;
-    const modelId = result.model;
-    if (instanceKey && modelId) {
-        const mParams = getModelParams(instanceKey, modelId);
-        if (mParams) {
-            if (mParams.temperature != null) { result.temperature = mParams.temperature; result.enableTemperature = true; }
-            if (mParams.topP != null) { result.topP = mParams.topP; result.enableTopP = true; }
-            if (mParams.maxContextLength != null) { result.maxContextLength = mParams.maxContextLength; result.enableMaxContextLength = true; }
-            if (mParams.maxOutputTokens != null) { result.maxOutputTokens = mParams.maxOutputTokens; result.enableMaxOutputTokens = true; }
-            if (mParams.reasoningEffort != null) { result.reasoningEffort = mParams.reasoningEffort; result.enableReasoningEffort = true; }
-            // 模型级参数自动开启 useAdvancedParams
-            result.useAdvancedParams = true;
-        }
-    }
-
-    // 解析 providerType（多实例架构下 provider 可能是 'deepseek_abc123' 这类实例 key）
-    if (instanceKey) {
-        const cfg = settings.apiConfig?.providerConfigs?.[instanceKey];
-        result.providerType = cfg?.providerType || instanceKey;
-    }
-
-    return result;
-}
-
-// ==================== 供应商多实例管理 ====================
-
-/**
- * 创建同类型供应商的新实例
- * @param {string} providerType - 原始供应商类型 key（如 'deepseek'）
- * @param {string} instanceName - 用户自定义实例名称（可选，自动生成）
- * @param {Object} initialConfig - 初始配置（可选）
- * @returns {string} 新创建的实例 key
- */
-export function addProviderInstance(providerType, instanceName, initialConfig = {}) {
-    const settings = getProjectSettings();
-    const pc = settings.apiConfig.providerConfigs || {};
-    // 生成唯一实例 key
-    const suffix = Date.now().toString(36) + Math.random().toString(36).substr(2, 4);
-    const instanceKey = `${providerType}_${suffix}`;
-    pc[instanceKey] = {
-        apiKey: initialConfig.apiKey || '',
-        baseUrl: initialConfig.baseUrl || '',
-        model: initialConfig.model || '',
-        models: initialConfig.models || [],
-        apiFormat: initialConfig.apiFormat || '',
-        providerType,
-        instanceName: instanceName || `${providerType} (${suffix.slice(0, 4)})`,
-        modelParams: {},
-    };
-    settings.apiConfig.providerConfigs = pc;
-    saveProjectSettings(settings);
-    return instanceKey;
-}
-
-/**
- * 删除供应商实例
- * @param {string} instanceKey - 要删除的实例 key
- */
-export function deleteProviderInstance(instanceKey) {
-    const settings = getProjectSettings();
-    const pc = settings.apiConfig.providerConfigs || {};
-    if (!pc[instanceKey]) return false;
-    delete pc[instanceKey];
-    // 如果当前活跃的 provider 就是这个实例，切回第一个可用
-    if (settings.apiConfig.provider === instanceKey) {
-        const remaining = Object.keys(pc);
-        if (remaining.length > 0) {
-            const first = remaining[0];
-            settings.apiConfig.provider = first;
-            settings.apiConfig.apiKey = pc[first].apiKey || '';
-            settings.apiConfig.baseUrl = pc[first].baseUrl || '';
-            settings.apiConfig.model = pc[first].model || '';
-        }
-    }
-    if (settings.chatApiConfig?.provider === instanceKey) {
-        settings.chatApiConfig = null;
-    }
-    settings.apiConfig.providerConfigs = pc;
-    saveProjectSettings(settings);
-    return true;
-}
-
-/**
- * 获取指定模型的独立参数覆盖
- * @param {string} instanceKey - 供应商实例 key
- * @param {string} modelId - 模型 ID
- * @returns {Object|null} 参数对象或 null
- */
-export function getModelParams(instanceKey, modelId) {
-    if (!instanceKey || !modelId) return null;
-    const settings = getProjectSettings();
-    const cfg = settings.apiConfig?.providerConfigs?.[instanceKey];
-    if (!cfg?.modelParams?.[modelId]) return null;
-    const p = cfg.modelParams[modelId];
-    // 返回非空的参数对象，如果所有字段都为 null 则整体返回 null
-    const hasAny = Object.values(p).some(v => v != null);
-    return hasAny ? p : null;
-}
-
-/**
- * 设置指定模型的独立参数覆盖
- * @param {string} instanceKey - 供应商实例 key
- * @param {string} modelId - 模型 ID
- * @param {Object} params - { temperature?, topP?, maxContextLength?, maxOutputTokens?, reasoningEffort? }
- */
-export function setModelParams(instanceKey, modelId, params) {
-    if (!instanceKey || !modelId) return;
-    const settings = getProjectSettings();
-    const pc = settings.apiConfig.providerConfigs || {};
-    if (!pc[instanceKey]) return;
-    if (!pc[instanceKey].modelParams) pc[instanceKey].modelParams = {};
-    const prev = pc[instanceKey].modelParams[modelId] || {};
-    pc[instanceKey].modelParams[modelId] = { ...prev, ...params };
-    // 清除值为 null 的字段（表示恢复默认）
-    const mp = pc[instanceKey].modelParams[modelId];
-    for (const k of Object.keys(mp)) {
-        if (mp[k] === null || mp[k] === undefined) delete mp[k];
-    }
-    if (Object.keys(mp).length === 0) delete pc[instanceKey].modelParams[modelId];
-    settings.apiConfig.providerConfigs = pc;
-    saveProjectSettings(settings);
-}
-
-/**
- * 获取 providerType 对应的所有实例 key 列表
- * @param {string} providerType - 供应商类型
- * @returns {string[]} 实例 key 数组
- */
-export function getProviderInstances(providerType) {
-    const settings = getProjectSettings();
-    const pc = settings.apiConfig?.providerConfigs || {};
-    return Object.keys(pc).filter(key => {
-        const cfg = pc[key];
-        return (cfg.providerType || key) === providerType;
-    });
-}
 
 // 添加角色
 export function addCharacter(character) {
@@ -1077,14 +819,11 @@ export async function addSettingsNode({ name, type, category, parentId, icon, co
     };
 
     if (node.type === 'item') {
-        const { apiConfig } = getProjectSettings();
-        if (apiConfig.useCustomEmbed) {
-            try {
-                const textToEmbed = extractTextForEmbedding(node);
-                node.embedding = await getEmbedding(textToEmbed, apiConfig);
-            } catch (e) {
-                console.warn('[Settings] Embedding failed for new node, will retry later:', e.message);
-            }
+        try {
+            const textToEmbed = extractTextForEmbedding(node);
+            node.embedding = await getEmbedding(textToEmbed);
+        } catch (e) {
+            console.warn('[Settings] Embedding failed for new node, will retry later:', e.message);
         }
     }
 
@@ -1115,11 +854,10 @@ export async function updateSettingsNode(id, updates, currentNodes, workId) {
     nodes[idx] = { ...nodes[idx], ...updates, updatedAt: new Date().toISOString() };
     await saveSettingsNodes(nodes, targetWorkId);
 
-    // 如果名称或内容发生改变，且是条目，且开启了嵌入功能，延迟计算 embedding
+    // 如果名称或内容发生改变，且是条目，延迟计算 embedding
     // 使用 3 秒防抖，避免输入过程中频繁调用 embedding API
     const nodeType = updates.type || nodes[idx].type;
-    const { apiConfig } = getProjectSettings();
-    if (nodeType === 'item' && apiConfig.useCustomEmbed && (updates.name !== undefined || updates.content !== undefined)) {
+    if (nodeType === 'item' && (updates.name !== undefined || updates.content !== undefined)) {
         clearTimeout(_embeddingTimers[id]);
         _embeddingTimers[id] = setTimeout(async () => {
             try {
@@ -1129,7 +867,7 @@ export async function updateSettingsNode(id, updates, currentNodes, workId) {
                 const freshIdx = freshNodes.findIndex(n => n.id === id);
                 if (freshIdx === -1) return;
                 const textToEmbed = extractTextForEmbedding(freshNodes[freshIdx]);
-                const embedding = await getEmbedding(textToEmbed, apiConfig);
+                const embedding = await getEmbedding(textToEmbed);
                 if (embedding) {
                     freshNodes[freshIdx] = { ...freshNodes[freshIdx], embedding };
                     await saveSettingsNodes(freshNodes, targetWorkId);
@@ -1190,7 +928,6 @@ export async function moveSettingsNode(id, newParentId) {
 // 每次请求间隔 500ms 以避免超出 TPM 限制
 export async function rebuildAllEmbeddings(onProgress) {
     const nodes = await getSettingsNodes();
-    const { apiConfig } = getProjectSettings();
     const items = nodes.filter(n => n.type === 'item');
     let done = 0;
     let failed = 0;
@@ -1198,7 +935,7 @@ export async function rebuildAllEmbeddings(onProgress) {
     for (const item of items) {
         try {
             const textToEmbed = extractTextForEmbedding(item);
-            const embedding = await getEmbedding(textToEmbed, apiConfig);
+            const embedding = await getEmbedding(textToEmbed);
             const idx = nodes.findIndex(n => n.id === item.id);
             if (idx !== -1 && embedding) {
                 nodes[idx].embedding = embedding;

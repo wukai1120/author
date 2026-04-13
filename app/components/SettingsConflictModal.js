@@ -100,12 +100,7 @@ export default function SettingsConflictModal({ conflicts, noConflicts, onConfir
         }));
 
         try {
-            const { apiConfig } = getProjectSettings();
-            const pType = apiConfig?.providerType || apiConfig?.provider;
-            const apiEndpoint = ['gemini-native', 'custom-gemini'].includes(pType) ? '/api/ai/gemini'
-                : pType === 'openai-responses' ? '/api/ai/responses'
-                    : (['claude', 'custom-claude'].includes(pType) || apiConfig?.apiFormat === 'anthropic') ? '/api/ai/claude'
-                        : '/api/ai';
+            const apiEndpoint = '/api/ai';
 
             const existingFields = JSON.stringify(conflict.existing.content || {}, null, 2);
             const importedFields = JSON.stringify(conflict.imported.content || {}, null, 2);
@@ -135,15 +130,7 @@ ${importedFields}
             const res = await fetch(apiEndpoint, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    systemPrompt, userPrompt, apiConfig,
-                    ...(apiConfig?.useAdvancedParams ? {
-                        maxTokens: apiConfig.maxOutputTokens || 65536,
-                        temperature: apiConfig.temperature ?? 1,
-                        topP: apiConfig.topP ?? 0.95,
-                        reasoningEffort: apiConfig.reasoningEffort || 'auto',
-                    } : {}),
-                }),
+                body: JSON.stringify({ systemPrompt, userPrompt }),
             });
 
             if (!res.ok) {

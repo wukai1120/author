@@ -8,10 +8,9 @@ import {
     renameSession, switchSession, getActiveSession, addMessage, editMessage as editMsgFn,
     deleteMessage as deleteMsgFn, createBranch, addVariant, switchVariant, replaceMessages
 } from '../lib/chat-sessions';
-import { getProjectSettings, getChatApiConfig, getActiveWorkId, getSettingsNodes, addSettingsNode, updateSettingsNode, deleteSettingsNode } from '../lib/settings';
+import { getActiveWorkId, getSettingsNodes, addSettingsNode, updateSettingsNode, deleteSettingsNode } from '../lib/settings';
 import { useAppStore } from '../store/useAppStore';
 import ChatMarkdown from './ChatMarkdown';
-import ModelPicker from './ModelPicker';
 import { FolderOpen, Plus, X, Pencil, Trash2, RefreshCw, GitBranch, CornerDownLeft, ClipboardList, Copy, Code2, FileText, Maximize2, Minimize2 } from 'lucide-react';
 import { useI18n } from '../lib/useI18n';
 
@@ -448,52 +447,10 @@ export default function AiSidebar({ onInsertText }) {
     }, [slidingWindow, slidingWindowSize, chatHistory.length]);
 
     // --- 通用 SSE 流式读取，支持 text+thinking+tools ---
-    const streamResponse = useCallback(async (apiEndpoint, systemPrompt, userPrompt, apiConfig, onUpdate, onDone, signal) => {
-        // 构建工具配置
-        const provider = apiConfig?.provider;
-        const isGeminiNative = ['gemini-native', 'custom-gemini'].includes(provider);
-        const isOpenAI = ['openai', 'openai-responses'].includes(provider);
-        const searchMode = apiConfig?.tools?.searchMode || 'builtin'; // 'builtin' | 'external'
-        const searchEnabled = !!apiConfig?.tools?.searchEnabled;
-        let toolsPayload = undefined;
-
-        if (isGeminiNative) {
-            // Gemini: 内置工具
-            const gs = searchEnabled || !!apiConfig?.tools?.googleSearch;
-            const ce = !!apiConfig?.tools?.codeExecution;
-            if (gs || ce) toolsPayload = { googleSearch: gs, codeExecution: ce };
-        } else if (searchEnabled) {
-            if (searchMode === 'builtin' && (isOpenAI || provider === 'custom')) {
-                // OpenAI 内置搜索
-                toolsPayload = { webSearch: true };
-            } else if (searchMode === 'external' || (!isOpenAI && provider !== 'custom')) {
-                // Function Calling 外部搜索 — 需要外部搜索 API Key
-                const sc = apiConfig?.searchConfig || {};
-                if (sc.apiKey) {
-                    toolsPayload = {
-                        functionSearch: true,
-                        searchConfig: sc,
-                    };
-                } else {
-                    // 未配置搜索 API Key，提醒用户
-                    console.warn('[AiSidebar] 已启用联网搜索但未配置搜索 API Key（Tavily/Exa），本次跳过搜索');
-                    showToast?.('⚠️ 联网搜索需要配置 Tavily 或 Exa API Key，请在设置 → API配置 → 联网搜索 中填入', 'warning');
-                }
-            }
-        }
-
+    const streamResponse = useCallback(async (systemPrompt, userPrompt, onUpdate, onDone, signal) => {
         const startTime = Date.now();
-        const requestBody = {
-            systemPrompt, userPrompt, apiConfig,
-            ...(apiConfig?.useAdvancedParams ? {
-                ...(apiConfig.enableMaxOutputTokens ? { maxTokens: apiConfig.maxOutputTokens || 65536 } : {}),
-                ...(apiConfig.enableTemperature ? { temperature: apiConfig.temperature ?? 1 } : {}),
-                ...(apiConfig.enableTopP ? { topP: apiConfig.topP ?? 0.95 } : {}),
-                ...(apiConfig.enableReasoningEffort ? { reasoningEffort: apiConfig.reasoningEffort || 'auto' } : {}),
-            } : {}),
-            ...(toolsPayload ? { tools: toolsPayload } : {}),
-        };
-        const res = await fetch(apiEndpoint, {
+        const requestBody = { systemPrompt, userPrompt };
+        const res = await fetch('/api/ai', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(requestBody),
@@ -550,8 +507,8 @@ export default function AiSidebar({ onInsertText }) {
                 cachedTokens: usageData.cachedTokens || 0,
                 durationMs,
                 source: 'chat',
-                provider: apiConfig?.provider || 'unknown',
-                model: apiConfig?.model || 'unknown',
+                provider: 'server-env',
+                model: 'server-env',
             });
         } else {
             // API 未返回 usage，客户端估算
@@ -563,8 +520,8 @@ export default function AiSidebar({ onInsertText }) {
                 totalTokens: estPrompt + estCompletion,
                 durationMs,
                 source: 'chat',
-                provider: apiConfig?.provider || 'unknown',
-                model: apiConfig?.model || 'unknown',
+                provider: 'server-env',
+                model: 'server-env',
             });
         }
         setStatsVersion(v => v + 1);
@@ -572,6 +529,7 @@ export default function AiSidebar({ onInsertText }) {
         onDone(fullText, fullThinking, toolCalls);
         return requestBody;
     }, []);
+
 
     // 终止生成
     const handleStop = useCallback(() => {
@@ -590,13 +548,6 @@ export default function AiSidebar({ onInsertText }) {
         abortRef.current = controller;
 
         try {
-            const apiConfig = getChatApiConfig();
-
-            const apiEndpoint = ['gemini-native', 'custom-gemini'].includes(apiConfig?.provider) ? '/api/ai/gemini'
-                : apiConfig?.provider === 'openai-responses' ? '/api/ai/responses'
-                    : (['claude', 'custom-claude'].includes(apiConfig?.provider) || apiConfig?.apiFormat === 'anthropic') ? '/api/ai/claude'
-                        : '/api/ai';
-
             const context = await buildContext(activeChapterId, text, contextSelection.size > 0 ? contextSelection : null);
             const systemPrompt = compileSystemPrompt(context, 'chat');
             const historyForApi = selectedHistory.map(m => `${m.role === 'user' ? t('aiSidebar.roleYou') : t('aiSidebar.roleAi')}: ${m.content}`).join('\n');
@@ -619,7 +570,7 @@ export default function AiSidebar({ onInsertText }) {
             const aiPlaceholder = { id: aiMsgId, role: 'assistant', content: '', thinking: '', toolCalls: [], timestamp: Date.now(), _context: contextSnapshot, _rawRequest: null };
             setSessionStore(prev => addMessage(prev, aiPlaceholder));
 
-            const returnedBody = await streamResponse(apiEndpoint, systemPrompt, userPrompt, apiConfig,
+            const returnedBody = await streamResponse(systemPrompt, userPrompt,
                 (snapText, snapThinking, snapToolCalls) => {
                     setSessionStore(prev => ({
                         ...prev, sessions: prev.sessions.map(s => {
@@ -707,13 +658,6 @@ export default function AiSidebar({ onInsertText }) {
         abortRef.current = controller;
 
         try {
-            const apiConfig = getChatApiConfig();
-
-            const apiEndpoint = ['gemini-native', 'custom-gemini'].includes(apiConfig?.provider) ? '/api/ai/gemini'
-                : apiConfig?.provider === 'openai-responses' ? '/api/ai/responses'
-                    : (['claude', 'custom-claude'].includes(apiConfig?.provider) || apiConfig?.apiFormat === 'anthropic') ? '/api/ai/claude'
-                        : '/api/ai';
-
             const context = await buildContext(activeChapterId, userMsg.content, contextSelection.size > 0 ? contextSelection : null);
             const systemPrompt = compileSystemPrompt(context, 'chat');
             const historyForApi = priorHistory
@@ -734,7 +678,7 @@ export default function AiSidebar({ onInsertText }) {
                 }),
             }));
 
-            await streamResponse(apiEndpoint, systemPrompt, userPrompt, apiConfig,
+            await streamResponse(systemPrompt, userPrompt,
                 (snapText, snapThinking, snapToolCalls) => {
                     setSessionStore(prev => ({
                         ...prev, sessions: prev.sessions.map(s => {

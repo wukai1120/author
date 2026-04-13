@@ -8,6 +8,9 @@ export const maxDuration = 120;
 import { applyContentSafety } from '../../lib/content-safety';
 import { proxyFetch } from '../../lib/proxy-fetch';
 import { rotateKey } from '../../lib/keyRotator';
+import { POST as claudePost } from './claude/route';
+import { POST as geminiPost } from './gemini/route';
+import { POST as responsesPost } from './responses/route';
 
 // Function Calling 搜索工具定义
 const WEB_SEARCH_TOOL = {
@@ -62,17 +65,28 @@ async function executeSearch(query, searchConfig, proxyUrl) {
 }
 
 export async function POST(request) {
-    try {
-        const { systemPrompt, userPrompt, apiConfig, maxTokens, temperature, topP, reasoningEffort, tools: toolsConfig } = await request.json();
-        const proxyUrl = apiConfig?.proxyUrl || '';
+    const provider = (process.env.AI_PROVIDER || '').trim().toLowerCase();
+    if (provider === 'claude' || provider === 'anthropic') {
+        return claudePost(request);
+    }
+    if (provider === 'gemini' || provider === 'google' || provider === 'google-gemini') {
+        return geminiPost(request);
+    }
+    if (provider === 'responses' || provider === 'openai-responses') {
+        return responsesPost(request);
+    }
 
-        const apiKey = rotateKey(apiConfig?.apiKey || process.env.API_KEY || process.env.ZHIPU_API_KEY);
-        const baseUrl = apiConfig?.baseUrl || process.env.API_BASE_URL || 'https://open.bigmodel.cn/api/paas/v4';
-        const model = apiConfig?.model || process.env.API_MODEL || 'glm-4-flash';
+    try {
+        const { systemPrompt, userPrompt, maxTokens, temperature, topP, reasoningEffort, tools: toolsConfig } = await request.json();
+        const proxyUrl = process.env.AI_PROXY_URL || '';
+
+        const apiKey = rotateKey(process.env.API_KEY || process.env.ZHIPU_API_KEY);
+        const baseUrl = process.env.API_BASE_URL || 'https://open.bigmodel.cn/api/paas/v4';
+        const model = process.env.API_MODEL || 'glm-4-flash';
 
         if (!apiKey) {
             return new Response(
-                JSON.stringify({ error: '请先配置 API Key。点击左下角 ⚙️ → API配置，填入你的 Key' }),
+                JSON.stringify({ error: '服务端未配置 AI_API_KEY，请联系管理员在 .env.local 中配置 API_KEY（或 ZHIPU_API_KEY）' }),
                 { status: 400, headers: { 'Content-Type': 'application/json' } }
             );
         }
@@ -242,7 +256,7 @@ export async function POST(request) {
     } catch (error) {
         console.error('AI接口错误:', error);
         return new Response(
-            JSON.stringify({ error: '网络连接失败，请检查 API 地址是否正确' }),
+            JSON.stringify({ error: '网络连接失败，请检查服务端 AI 环境变量配置' }),
             { status: 500, headers: { 'Content-Type': 'application/json' } }
         );
     }
@@ -288,7 +302,7 @@ function errorResponse(status, errorText = '') {
     }
 
     if (!errMsg) {
-        errMsg = `AI服务返回错误(${status})，请检查 API 配置`;
+        errMsg = `AI服务返回错误(${status})，请检查服务端 AI 环境变量配置`;
     }
 
     return new Response(

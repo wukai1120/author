@@ -14,8 +14,6 @@ const PROJECT_FILE_VERSION = 2;
 const LOCAL_ONLY_KEYS = {
     settings:    'author-project-settings',
     activeWork:  'author-active-work',
-    apiConfig:   'author-api-config',
-    apiProfiles: 'author-api-profiles',
     tokenStats:  'author-token-stats',
     theme:       'author-theme',
     lang:        'author-lang',

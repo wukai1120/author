@@ -221,8 +221,6 @@ const LOCALSTORAGE_KEYS = new Set([
     'author-lang',
     'author-visual',
     'author-context-selection',
-    'author-api-profiles',
-    'author-api-config',
     'author-delete-never-remind',
     'author-delete-skip-today',
 ]);

@@ -10,20 +10,20 @@ import { rotateKey } from '../../../lib/keyRotator';
 
 export async function POST(request) {
     try {
-        const { systemPrompt, userPrompt, apiConfig, maxTokens, temperature, topP, reasoningEffort, tools: toolsConfig } = await request.json();
-        const proxyUrl = apiConfig?.proxyUrl || '';
+        const { systemPrompt, userPrompt, maxTokens, temperature, topP, reasoningEffort, tools: toolsConfig } = await request.json();
+        const proxyUrl = process.env.AI_PROXY_URL || '';
 
-        const apiKey = rotateKey(apiConfig?.apiKey || process.env.GEMINI_API_KEY);
-        let rawBaseUrl = apiConfig?.baseUrl;
+        const apiKey = rotateKey(process.env.GEMINI_API_KEY);
+        let rawBaseUrl = process.env.GEMINI_BASE_URL;
         if (!rawBaseUrl || rawBaseUrl.includes('open.bigmodel.cn')) {
-            rawBaseUrl = process.env.GEMINI_BASE_URL || 'https://generativelanguage.googleapis.com/v1beta';
+            rawBaseUrl = 'https://generativelanguage.googleapis.com/v1beta';
         }
         const baseUrl = rawBaseUrl.replace(/\/$/, '');
-        const model = apiConfig?.model || process.env.GEMINI_MODEL || 'gemini-2.0-flash';
+        const model = process.env.GEMINI_MODEL || 'gemini-2.0-flash';
 
         if (!apiKey) {
             return new Response(
-                JSON.stringify({ error: '请先配置 API Key。点击左下角 ⚙️ → API配置，填入你的 Gemini Key' }),
+                JSON.stringify({ error: '服务端未配置 GEMINI_API_KEY，请联系管理员在 .env.local 中配置' }),
                 { status: 400, headers: { 'Content-Type': 'application/json' } }
             );
         }
@@ -83,7 +83,7 @@ export async function POST(request) {
                 429: () => '请求频率过高或配额不足，请稍后再试',
             };
             const errMsg = errorHandlers[response.status]?.()
-                || `Gemini 服务返回错误(${response.status})，请检查 API 配置`;
+                || `Gemini 服务返回错误(${response.status})，请检查服务端 AI 环境变量配置`;
 
             return new Response(
                 JSON.stringify({ error: errMsg }),
@@ -196,7 +196,7 @@ export async function POST(request) {
     } catch (error) {
         console.error('Gemini 接口错误:', error);
         return new Response(
-            JSON.stringify({ error: '网络连接失败，请检查 API 地址是否正确' }),
+            JSON.stringify({ error: '网络连接失败，请检查服务端 AI 环境变量配置' }),
             { status: 500, headers: { 'Content-Type': 'application/json' } }
         );
     }

@@ -4,13 +4,26 @@
 // 提供统一的认证接口，供 SettingsPanel 和 persistence 层使用
 // 支持邮箱 OTP 登录/注册 + 微信 OAuth 登录
 
-import { isCloudBaseConfigured, getCloudBase, getAuth as getAuthInstance } from './cloudbase';
+import { isCloudBaseConfigured, getCloudBase } from './cloudbase';
 
 // ==================== 状态管理 ====================
 
-let _currentUser = null;
+let _currentUser = undefined;
 const _listeners = new Set();
 let _authStateUnsubscribe = null;
+
+function setAuthCookies(user) {
+    if (typeof document === 'undefined') return;
+    if (user?.uid) {
+        document.cookie = `author-auth=1; path=/; max-age=${7 * 24 * 3600}; SameSite=Lax`;
+        document.cookie = `author-uid=${user.uid}; path=/; max-age=${365 * 24 * 3600}; SameSite=Lax`;
+    }
+}
+
+function clearAuthCookies() {
+    if (typeof document === 'undefined') return;
+    document.cookie = 'author-auth=; path=/; max-age=0; SameSite=Lax';
+}
 
 // 将 CloudBase 用户对象适配为统一格式（兼容旧 Firebase 字段）
 function normalizeUser(cbUser) {
@@ -44,12 +57,16 @@ export async function initAuth() {
         if (event === 'SIGNED_IN' || event === 'TOKEN_REFRESHED' || event === 'USER_UPDATED' || event === 'INITIAL_SESSION') {
             const user = session?.user ? normalizeUser(session.user) : null;
             _currentUser = user;
-            if (user) saveAccountToHistory(user);
+            if (user) {
+                saveAccountToHistory(user);
+                setAuthCookies(user);
+            }
             _listeners.forEach(fn => {
                 try { fn(user); } catch (e) { console.error('[auth] listener error:', e); }
             });
         } else if (event === 'SIGNED_OUT') {
             _currentUser = null;
+            clearAuthCookies();
             _listeners.forEach(fn => {
                 try { fn(null); } catch (e) { console.error('[auth] listener error:', e); }
             });
@@ -63,7 +80,10 @@ export async function initAuth() {
         if (sessionData?.session?.user) {
             const user = normalizeUser(sessionData.session.user);
             _currentUser = user;
-            if (user) saveAccountToHistory(user);
+            if (user) {
+                saveAccountToHistory(user);
+                setAuthCookies(user);
+            }
             _listeners.forEach(fn => {
                 try { fn(user); } catch (e) { console.error('[auth] listener error:', e); }
             });
@@ -131,7 +151,89 @@ export function onAuthChange(callback) {
     return () => _listeners.delete(callback);
 }
 
-// ==================== 邮箱 OTP 登录 ====================
+function buildOtpVerifier(resultData) {
+    return {
+        verifyOtp: async (token) => {
+            const { data: loginData, error: loginError } = await resultData.verifyOtp({ token });
+            if (loginError) throw new Error(loginError.message || '验证码错误');
+            return loginData;
+        }
+    };
+}
+
+function normalizeErrorText(error) {
+    return String(error?.message || error?.code || '').toLowerCase();
+}
+
+function isAccountNotFoundError(error) {
+    const text = normalizeErrorText(error);
+    return (
+        text.includes('not found') ||
+        text.includes('no such user') ||
+        text.includes('user not exist') ||
+        text.includes('not registered') ||
+        text.includes('未注册') ||
+        text.includes('用户不存在')
+    );
+}
+
+function isAlreadyExistsError(error) {
+    const text = normalizeErrorText(error);
+    return (
+        text.includes('already exists') ||
+        text.includes('already registered') ||
+        text.includes('has been registered') ||
+        text.includes('已存在') ||
+        text.includes('已注册')
+    );
+}
+// ==================== 邮箱 OTP 登录 / 注册 ====================
+
+/**
+ * 发送邮箱 OTP 验证码（统一登录，未注册时自动注册）
+ * @param {string} email
+ * @param {string} [nickname]
+ * @returns {Promise<{verifyOtp: Function}>}
+ */
+export async function sendEmailOtpUnified(email, nickname) {
+    const { auth } = await getCloudBase();
+    if (!auth) throw new Error('CloudBase 未配置');
+
+    const trySignIn = async () => {
+        const { data, error } = await auth.signInWithOtp({ email });
+        if (error) throw error;
+        return buildOtpVerifier(data);
+    };
+
+    const trySignUp = async () => {
+        const params = { email };
+        if (nickname) params.nickname = nickname;
+        const { data, error } = await auth.signUp(params);
+        if (error) throw error;
+        return buildOtpVerifier(data);
+    };
+
+    try {
+        return await trySignIn();
+    } catch (signInError) {
+        if (!isAccountNotFoundError(signInError)) {
+            throw new Error(signInError.message || '发送验证码失败');
+        }
+
+        try {
+            return await trySignUp();
+        } catch (signUpError) {
+            if (isAlreadyExistsError(signUpError)) {
+                try {
+                    return await trySignIn();
+                } catch (retryError) {
+                    throw new Error(retryError.message || '发送验证码失败');
+                }
+            }
+            throw new Error(signUpError.message || '发送验证码失败');
+        }
+    }
+}
 
 /**
  * 发送邮箱 OTP 验证码（登录）
@@ -139,20 +241,8 @@ export function onAuthChange(callback) {
  * @returns {Promise<{verifyOtp: Function}>} 返回验证函数
  */
 export async function sendEmailOtp(email) {
-    const { auth } = await getCloudBase();
-    if (!auth) throw new Error('CloudBase 未配置');
-    const { data, error } = await auth.signInWithOtp({ email });
-    if (error) throw new Error(error.message || '发送验证码失败');
-    return {
-        verifyOtp: async (token) => {
-            const { data: loginData, error: loginError } = await data.verifyOtp({ token });
-            if (loginError) throw new Error(loginError.message || '验证码错误');
-            return loginData;
-        }
-    };
+    return sendEmailOtpUnified(email);
 }
-
-// ==================== 邮箱 OTP 注册 ====================
 
 /**
  * 发送邮箱 OTP 验证码（注册）
@@ -161,19 +251,7 @@ export async function sendEmailOtp(email) {
  * @returns {Promise<{verifyOtp: Function}>}
  */
 export async function sendSignUpOtp(email, nickname) {
-    const { auth } = await getCloudBase();
-    if (!auth) throw new Error('CloudBase 未配置');
-    const params = { email };
-    if (nickname) params.nickname = nickname;
-    const { data, error } = await auth.signUp(params);
-    if (error) throw new Error(error.message || '发送验证码失败');
-    return {
-        verifyOtp: async (token) => {
-            const { data: loginData, error: loginError } = await data.verifyOtp({ token });
-            if (loginError) throw new Error(loginError.message || '验证码错误');
-            return loginData;
-        }
-    };
+    return sendEmailOtpUnified(email, nickname);
 }
 
 // ==================== 微信 OAuth 登录 ====================
@@ -194,10 +272,14 @@ export async function signInWithWechat() {
 
 export async function signOut() {
     const { auth } = await getCloudBase();
-    if (!auth) return;
+    if (!auth) {
+        clearAuthCookies();
+        return;
+    }
     const { error } = await auth.signOut();
     if (error) console.warn('[auth] sign out error:', error.message);
     _currentUser = null;
+    clearAuthCookies();
     _listeners.forEach(fn => {
         try { fn(null); } catch {}
     });

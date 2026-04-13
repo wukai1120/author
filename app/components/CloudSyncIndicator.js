@@ -2,17 +2,19 @@
 
 import { useState, useEffect, useRef } from 'react';
 import { createPortal } from 'react-dom';
+import { useRouter } from 'next/navigation';
 import { Cloud, CloudOff, LogOut, RefreshCw, CheckCircle2, User, ArrowRightLeft } from 'lucide-react';
 import { useAppStore } from '../store/useAppStore';
 import { useI18n } from '../lib/useI18n';
 
 /**
  * 顶栏云同步状态指示器
- * - 未登录：显示灰色云图标 + "登录同步"，点击打开偏好设置
- * - 已登录：显示用户头像 + 绿色圆点，点击弹出账户菜单
+ * - 未登录：显示灰色云图标 + "登录同步"
+ * - 已登录：显示用户头像 + 状态，点击弹出账户菜单
  */
 export default function CloudSyncIndicator() {
-    const { setShowLoginModal, setShowAccountModal, setShowSyncGuideModal } = useAppStore();
+    const router = useRouter();
+    const { setShowAccountModal } = useAppStore();
     const { t } = useI18n();
     const [authUser, setAuthUser] = useState(null);
     const [syncStatus, setSyncStatus] = useState(null);
@@ -32,36 +34,18 @@ export default function CloudSyncIndicator() {
                 initAuth();
                 onAuthChange(user => { if (!unmounted) setAuthUser(user); });
                 onSyncStatusChange(status => { if (!unmounted) setSyncStatus(status); });
-            } catch { /* CloudBase 未配置 */ }
+            } catch { }
         })();
         return () => { unmounted = true; };
     }, []);
 
     if (!cloudBaseAvailable) {
-        const isElectron = typeof window !== 'undefined' && window.electron;
-
-        if (isElectron) {
-            // Electron 环境下 CloudBase 必定可用，即使暂时加载未完成也应该走正常未登录的流程
-            return (
-                <button
-                    id="tour-cloud-sync"
-                    className="cloud-sync-indicator cloud-sync-login"
-                    onClick={() => setShowLoginModal(true)}
-                    title="登录以开启云同步"
-                >
-                    <CloudOff size={15} />
-                    <span className="cloud-sync-label">{t('cloudSync.sync') || '同步'}</span>
-                </button>
-            );
-        }
-
-        // 非 Electron 环境（Web/Vercel）且未配置 CloudBase
         return (
             <button
                 id="tour-cloud-sync"
                 className="cloud-sync-indicator cloud-sync-login"
-                onClick={() => setShowSyncGuideModal(true)}
-                title={t('settings.syncGuide') || '云同步指南'}
+                onClick={() => router.push('/login?next=/')}
+                title="登录以开启云同步"
             >
                 <CloudOff size={15} />
                 <span className="cloud-sync-label">{t('cloudSync.sync') || '同步'}</span>
@@ -81,7 +65,6 @@ export default function CloudSyncIndicator() {
         setMenuOpen(false);
     };
 
-    // 同步状态文字
     const getSyncText = () => {
         if (!syncStatus) return null;
         if (syncStatus.syncing) return '同步中...';
@@ -90,13 +73,12 @@ export default function CloudSyncIndicator() {
         return null;
     };
 
-    // 未登录状态
     if (!authUser) {
         return (
             <button
                 id="tour-cloud-sync"
                 className="cloud-sync-indicator cloud-sync-login"
-                onClick={() => setShowLoginModal(true)}
+                onClick={() => router.push('/login?next=/')}
                 title="登录以开启云同步"
             >
                 <CloudOff size={15} />
@@ -105,7 +87,6 @@ export default function CloudSyncIndicator() {
         );
     }
 
-    // 已登录状态
     const initial = (authUser.displayName || authUser.email || '?')[0].toUpperCase();
 
     return (
