@@ -449,7 +449,7 @@ export default function Home() {
       <header className="top-header-bar">
         <div className="top-header-left">
           <div className="top-header-logo">
-            <span>A</span>uthor
+            <span>代信</span>AI创作
           </div>
         </div>
         <div className="top-header-right">

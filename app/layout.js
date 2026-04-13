@@ -27,7 +27,7 @@ export default function RootLayout({ children }) {
   return (
     <html lang="zh-CN" suppressHydrationWarning>
       <head>
-        <title>Author - AI辅助创作平台</title>
+        <title>代信AI创作平台</title>
         <meta name="description" content="面向小说创作者的AI辅助写作工具，让创作更自由" />
         <link
           rel="stylesheet"
