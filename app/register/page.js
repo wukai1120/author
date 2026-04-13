@@ -1,7 +1,7 @@
 'use client';
 
-import { useState, useEffect, use } from 'react';
-import { useRouter } from 'next/navigation';
+import { useState, useEffect, Suspense } from 'react';
+import { useRouter, useSearchParams } from 'next/navigation';
 import { X, Mail, Lock, XCircle, ArrowLeft, User as UserIcon } from 'lucide-react';
 import { useI18n } from '../lib/useI18n';
 import { legalDocUrl } from '../lib/constants';
@@ -13,12 +13,12 @@ function getSafeNext(next) {
     return next;
 }
 
-export default function RegisterPage({ searchParams }) {
+function RegisterContent() {
     const router = useRouter();
+    const searchParams = useSearchParams();
     const { t, language } = useI18n();
 
-    const resolvedSearchParams = searchParams ? use(searchParams) : null;
-    const nextPath = getSafeNext(resolvedSearchParams?.next);
+    const nextPath = getSafeNext(searchParams?.get('next'));
 
     const [email, setEmail] = useState('');
     const [nickname, setNickname] = useState('');
@@ -266,5 +266,13 @@ export default function RegisterPage({ searchParams }) {
                 </div>
             </div>
         </div>
+    );
+}
+
+export default function RegisterPage() {
+    return (
+        <Suspense fallback={null}>
+            <RegisterContent />
+        </Suspense>
     );
 }
