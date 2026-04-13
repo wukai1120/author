@@ -302,7 +302,7 @@ export default function Home() {
 
   useEffect(() => {
     if (!authReady || authUser) return;
-    router.replace('/login?next=/');
+    router.replace('/login');
   }, [authReady, authUser, router]);
 
   useEffect(() => {

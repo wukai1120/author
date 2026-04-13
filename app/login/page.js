@@ -1,23 +1,14 @@
 'use client';
 
-import { useState, useEffect, Suspense } from 'react';
-import { useRouter, useSearchParams } from 'next/navigation';
+import { useState, useEffect } from 'react';
+import { useRouter } from 'next/navigation';
 import { X, Mail, Lock, XCircle, ArrowLeft } from 'lucide-react';
 import { useI18n } from '../lib/useI18n';
 import WechatIcon from '../components/icons/WechatIcon';
 
-function getSafeNext(next) {
-    if (!next || typeof next !== 'string') return '/';
-    if (!next.startsWith('/') || next.startsWith('//')) return '/';
-    return next;
-}
-
-function LoginContent() {
+export default function LoginPage() {
     const router = useRouter();
-    const searchParams = useSearchParams();
     const { t } = useI18n();
-
-    const nextPath = getSafeNext(searchParams?.get('next'));
 
     const [authEmail, setAuthEmail] = useState('');
     const [otpCode, setOtpCode] = useState('');
@@ -53,7 +44,7 @@ function LoginContent() {
                 unsubscribe = auth.onAuthChange(user => {
                     if (unmounted) return;
                     if (user) {
-                        router.replace(nextPath);
+                        router.replace('/');
                         return;
                     }
                     setAuthChecking(false);
@@ -67,7 +58,7 @@ function LoginContent() {
             unmounted = true;
             if (unsubscribe) unsubscribe();
         };
-    }, [nextPath, router]);
+    }, [router]);
 
     if (authChecking) return null;
 
@@ -94,7 +85,7 @@ function LoginContent() {
         setError('');
         try {
             await verifyFn(otpCode);
-            router.replace(nextPath);
+            router.replace('/');
         } catch (err) {
             setError(err.message || '验证码错误');
         } finally {
@@ -233,19 +224,11 @@ function LoginContent() {
 
                 <div className="login-modal-switch">
                     {t('loginModal.noAccount')}
-                    <button onClick={() => router.push(`/register?next=${encodeURIComponent(nextPath)}`)}>
+                    <button onClick={() => router.push('/register')}>
                         {t('loginModal.registerNow')}
                     </button>
                 </div>
             </div>
         </div>
-    );
-}
-
-export default function LoginPage() {
-    return (
-        <Suspense fallback={null}>
-            <LoginContent />
-        </Suspense>
     );
 }

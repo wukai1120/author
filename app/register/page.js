@@ -1,24 +1,15 @@
 'use client';
 
-import { useState, useEffect, Suspense } from 'react';
-import { useRouter, useSearchParams } from 'next/navigation';
+import { useState, useEffect } from 'react';
+import { useRouter } from 'next/navigation';
 import { X, Mail, Lock, XCircle, ArrowLeft, User as UserIcon } from 'lucide-react';
 import { useI18n } from '../lib/useI18n';
 import { legalDocUrl } from '../lib/constants';
 import WechatIcon from '../components/icons/WechatIcon';
 
-function getSafeNext(next) {
-    if (!next || typeof next !== 'string') return '/';
-    if (!next.startsWith('/') || next.startsWith('//')) return '/';
-    return next;
-}
-
-function RegisterContent() {
+export default function RegisterPage() {
     const router = useRouter();
-    const searchParams = useSearchParams();
     const { t, language } = useI18n();
-
-    const nextPath = getSafeNext(searchParams?.get('next'));
 
     const [email, setEmail] = useState('');
     const [nickname, setNickname] = useState('');
@@ -60,7 +51,7 @@ function RegisterContent() {
                 unsubscribe = auth.onAuthChange(user => {
                     if (unmounted) return;
                     if (user) {
-                        router.replace(nextPath);
+                        router.replace('/');
                         return;
                     }
                     setAuthChecking(false);
@@ -74,7 +65,7 @@ function RegisterContent() {
             unmounted = true;
             if (unsubscribe) unsubscribe();
         };
-    }, [nextPath, router]);
+    }, [router]);
 
     if (authChecking) return null;
 
@@ -101,7 +92,7 @@ function RegisterContent() {
         setError('');
         try {
             await verifyFn(otpCode);
-            router.replace(nextPath);
+            router.replace('/');
         } catch (err) {
             setError(err.message || '验证码错误');
         } finally {
@@ -260,19 +251,11 @@ function RegisterContent() {
 
                 <div className="login-modal-switch">
                     {t('registerModal.hasAccount')}
-                    <button onClick={() => router.push(`/login?next=${encodeURIComponent(nextPath)}`)}>
+                    <button onClick={() => router.push('/login')}>
                         {t('registerModal.backToLogin')}
                     </button>
                 </div>
             </div>
         </div>
-    );
-}
-
-export default function RegisterPage() {
-    return (
-        <Suspense fallback={null}>
-            <RegisterContent />
-        </Suspense>
     );
 }
