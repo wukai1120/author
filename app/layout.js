@@ -17,6 +17,8 @@ const themeInitScript = `
 })();
 `;
 
+const showVercelInsights = process.env.NEXT_PUBLIC_ENABLE_VERCEL_INSIGHTS === '1';
+
 export default function RootLayout({ children }) {
   const [mounted, setMounted] = useState(false);
 
@@ -37,8 +39,8 @@ export default function RootLayout({ children }) {
       </head>
       <body suppressHydrationWarning>
         {children}
-        <Analytics />
-        <SpeedInsights />
+        {showVercelInsights && <Analytics />}
+        {showVercelInsights && <SpeedInsights />}
       </body>
     </html>
   );

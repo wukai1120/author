@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, use } from 'react';
 import { useRouter } from 'next/navigation';
 import { X, Mail, Lock, XCircle, ArrowLeft } from 'lucide-react';
 import { useI18n } from '../lib/useI18n';
@@ -16,7 +16,8 @@ export default function LoginPage({ searchParams }) {
     const router = useRouter();
     const { t } = useI18n();
 
-    const nextPath = getSafeNext(searchParams?.next);
+    const resolvedSearchParams = searchParams ? use(searchParams) : null;
+    const nextPath = getSafeNext(resolvedSearchParams?.next);
 
     const [authEmail, setAuthEmail] = useState('');
     const [otpCode, setOtpCode] = useState('');
@@ -41,7 +42,11 @@ export default function LoginPage({ searchParams }) {
         (async () => {
             try {
                 const { isCloudBaseConfigured } = await import('../lib/cloudbase');
-                if (!isCloudBaseConfigured || unmounted) return;
+                if (unmounted) return;
+                if (!isCloudBaseConfigured) {
+                    setAuthChecking(false);
+                    return;
+                }
                 setCloudBaseAvailable(true);
                 const auth = await import('../lib/auth');
                 await auth.initAuth();
